@@ -72,7 +72,7 @@ const dict = {
     errHand: 'Không tải được nhận diện tay. Hoa vẫn rơi bình thường.',
     help: 'Trợ giúp',
     helpBody:
-      'Khum tay để hứng hoa, xoè tay để thả. Ngẩng lên để xem cành đào, cúi xuống để gạt hoa trên sàn. Nếu hoa lệch vị trí, chọn "Tôi đang đứng trước…" và chọn panel trước mặt.',
+      'Khum tay để hứng hoa, xoè tay để thả. Ngẩng lên để xem cành đào, cúi xuống để gạt hoa trên sàn. Hướng camera vào ảnh chậu tôn hoặc thùng gỗ để xem hiện vật 3D, kéo để xoay, chụm hai ngón để phóng to. Nếu hoa lệch vị trí, chọn "Tôi đang đứng trước…" và chọn panel trước mặt.',
     privacy: 'Video chỉ xử lý trên điện thoại của bạn và không được tải lên máy chủ.',
     xrPlace: 'Đứng ở lối vào cổng G1, hướng camera xuống sàn rồi chạm vào vòng tròn',
     xrPlaced: 'Đã đặt hành lang',
@@ -82,6 +82,11 @@ const dict = {
     xrReplace: 'Đặt lại mặt sàn',
     floorScan: 'Hướng camera xuống vùng sàn trống gần chân, giữ yên khoảng 1 giây rồi lia chậm. Hoa chỉ đọng khi nhận được vùng sàn.',
     exitXr: 'Thoát AR nâng cao',
+    artHint: 'Kéo để xoay, chụm hai ngón để phóng to. Chạm hai lần để đặt lại.',
+    artInspect: 'Xem kỹ',
+    artReset: 'Đặt lại',
+    artClose: 'Đóng',
+    artScan: 'Gặp ảnh chậu tôn hoặc thùng gỗ? Hướng camera vào ảnh để xem hiện vật 3D.',
   },
   en: {
     exhibitionLine: 'A thematic exhibition at the Hỏa Lò Prison Relic',
@@ -154,7 +159,7 @@ const dict = {
     errHand: 'Hand tracking could not load. Blossoms still fall as usual.',
     help: 'Help',
     helpBody:
-      'Cup your hand to catch petals, open it to let go. Look up for the branches, look down to sweep the floor. If the blossoms drift, choose “I am standing at…” and pick the panel in front of you.',
+      'Cup your hand to catch petals, open it to let go. Look up for the branches, look down to sweep the floor. Point the camera at the photo of the metal basin or the wooden crate to see it in 3D; drag to rotate, pinch to zoom. If the blossoms drift, choose “I am standing at…” and pick the panel in front of you.',
     privacy: 'Video is processed only on your phone and is never uploaded to a server.',
     xrPlace: 'Stand at the G1 gate entrance, point the camera at the floor, then tap the ring',
     xrPlaced: 'Corridor placed',
@@ -164,6 +169,11 @@ const dict = {
     xrReplace: 'Reset the floor',
     floorScan: 'Point at clear floor near your feet, hold for about a second, then pan slowly. Petals settle only after the floor region is found.',
     exitXr: 'Leave enhanced AR',
+    artHint: 'Drag to rotate, pinch to zoom. Double-tap to reset.',
+    artInspect: 'Look closer',
+    artReset: 'Reset',
+    artClose: 'Close',
+    artScan: 'See the photo of the metal basin or the wooden crate? Point your camera at it to view the object in 3D.',
   },
 };
 

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Biên dịch ảnh mốc</title>
+    <style>
+      :root { --cobalt: #00539b; --cream: #fcfaf0; --saffron: #f5a93a; }
+      body { margin: 0; font: 17px/1.5 Georgia, serif; background: var(--cream); color: var(--cobalt); }
+      main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+      h1 { font-weight: 500; font-size: 28px; margin: 0 0 8px; }
+      ol { padding-left: 20px; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+      .row img { height: 96px; border-radius: 8px; border: 1px solid rgba(0,83,155,.2); background: #fff; }
+      button, label.file { font: inherit; border: 0; border-radius: 999px; padding: 10px 20px; cursor: pointer; background: var(--cobalt); color: var(--cream); display: inline-block; }
+      label.file input { display: none; }
+      progress { width: 100%; height: 10px; }
+      code { background: #fff; padding: 1px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Biên dịch ảnh mốc (MindAR)</h1>
+      <p>Chỉ dùng khi chạy <code>npm run dev</code>. Trang này không được đưa lên web.</p>
+      <ol>
+        <li>Chọn ảnh theo đúng thứ tự trong <code>src/config/artifacts.json</code> (ảnh 1 = <code>targetIndex 0</code>).</li>
+        <li>Bấm "Biên dịch", đợi thanh tiến trình chạy hết.</li>
+        <li>Lưu file tải về vào <code>public/markers/artifacts.mind</code>, rồi <code>npm run build</code>.</li>
+      </ol>
+      <p>Ảnh nên là file in chính thức, cạnh dài 800–1600 px, nhiều chi tiết, không bị loá.</p>
+      <div class="row">
+        <label class="file">Chọn ảnh<input id="files" type="file" accept="image/*" multiple /></label>
+        <button id="go" type="button" disabled>Biên dịch</button>
+      </div>
+      <div class="row" id="preview"></div>
+      <progress id="bar" max="100" value="0"></progress>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module">
+      import { Compiler } from '/src/vendor/mindar/mindar-image.prod.js';
+      const $ = (id) => document.getElementById(id);
+      let images = [];
+
+      const loadImg = (src) =>
+        new Promise((res, rej) => {
+          const im = new Image();
+          im.onload = () => res(im);
+          im.onerror = rej;
+          im.src = src;
+        });
+
+      $('files').addEventListener('change', async (e) => {
+        const files = [...e.target.files];
+        images = await Promise.all(files.map((f) => loadImg(URL.createObjectURL(f))));
+        // xem trước bằng bản sao: MindAR đọc img.width/height, ảnh đang hiển thị nhỏ sẽ làm hỏng target
+        $('preview').replaceChildren(...images.map((i) => i.cloneNode()));
+        $('go').disabled = !images.length;
+        $('status').textContent = `${images.length} ảnh đã chọn`;
+      });
+
+      async function compile() {
+        $('go').disabled = true;
+        $('status').textContent = 'Đang biên dịch…';
+        const compiler = new Compiler();
+        await compiler.compileImageTargets(images, (p) => ($('bar').value = p));
+        const data = await compiler.exportData();
+        window.__mind = data;
+        const blob = new Blob([data]);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'artifacts.mind';
+        a.click();
+        $('status').textContent = `Xong (${Math.round(data.byteLength / 1024)} KB). Đã tải artifacts.mind.`;
+        $('go').disabled = false;
+        return data;
+      }
+      $('go').addEventListener('click', compile);
+
+      // Chế độ tự động cho script: ?auto=/markers-src/a.jpg,/markers-src/b.jpg
+      const auto = new URLSearchParams(location.search).get('auto');
+      if (auto) {
+        images = await Promise.all(auto.split(',').map(loadImg));
+        $('preview').replaceChildren(...images.map((i) => i.cloneNode()));
+        window.__compileDone = compile().then((d) => Array.from(d));
+      }
+    </script>
+  </body>
+</html>

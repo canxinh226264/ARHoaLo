@@ -28,6 +28,8 @@ export class HandTracker implements ColliderSource {
   active = false; // đang thấy tay
   grabbing = false;
   hz = 18;
+  /** Tạm dừng nhận diện (ví dụ khi đang xem hiện vật 3D bằng cảm ứng). */
+  paused = false;
   readonly points = Array.from({ length: 21 }, () => new THREE.Vector3());
   readonly palm = new THREE.Vector3();
   readonly palmVel = new THREE.Vector3();
@@ -81,7 +83,7 @@ export class HandTracker implements ColliderSource {
 
   /** Gọi mỗi khung hình; tự giới hạn tần số nhận diện theo `hz`. */
   update(now: number, feed: CameraFeed, camera: THREE.PerspectiveCamera) {
-    if (this.landmarker && feed.ready && !this.busy && now - this.lastDetect >= 1000 / this.hz) {
+    if (this.landmarker && feed.ready && !this.busy && !this.paused && now - this.lastDetect >= 1000 / this.hz) {
       const v = feed.video;
       if (v.currentTime !== this.lastVideoTime && v.readyState >= 2) {
         this.lastVideoTime = v.currentTime;

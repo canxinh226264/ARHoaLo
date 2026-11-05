@@ -221,6 +221,22 @@ body.no-camera {
 .wayfind .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 18px; }
 .wayfind .btn--ghost { min-height: 44px; }
 
+.artcard {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--safe-b) + 110px); width: min(calc(100% - 32px), 420px);
+  background: var(--cream-glass); border-radius: 20px; padding: 12px 16px 12px; box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); text-align: center;
+  border-top: 3px solid var(--saffron);
+  animation: rise 0.3s ease;
+}
+.artcard strong { display: block; font-size: var(--s-md); font-weight: 500; line-height: 1.2; }
+.artcard .en { display: block; font-size: var(--s-body); }
+.artcard p { margin: 6px 0 0; font-size: var(--s-body); line-height: 1.4; text-align: left; }
+.artcard .hint { display: block; margin-top: 6px; font-size: var(--s-sm); opacity: 0.8; }
+.artcard .row { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+.artcard .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 22px; }
+.hud.has-art .chip--hand { visibility: hidden; }
+
 .toast {
   position: fixed; left: 50%; top: calc(var(--safe-t) + 64px); transform: translateX(-50%);
   width: max-content; max-width: min(calc(100% - 32px), 420px); z-index: 36;
@@ -251,7 +267,7 @@ input[type='range'] { width: 46%; accent-color: var(--cobalt); }
 .panels .orange { border-color: rgba(245, 169, 58, 0.9); }
 .photo { width: 100%; border-radius: 14px; display: block; margin: 8px 0 12px; box-shadow: 0 4px 16px rgba(0, 30, 60, 0.15); }
 
-.debug { position: fixed; left: 8px; bottom: calc(var(--safe-b) + 104px); z-index: 26; font: 12px/1.3 ui-monospace, monospace; color: var(--cream); background: rgba(0, 40, 80, 0.55); padding: 4px 8px; border-radius: 8px; pointer-events: none; white-space: pre; }
+.debug { position: fixed; left: 8px; top: calc(var(--safe-t) + 60px); z-index: 26; font: 12px/1.3 ui-monospace, monospace; color: var(--cream); background: rgba(0, 40, 80, 0.55); padding: 4px 8px; border-radius: 8px; pointer-events: none; white-space: pre; }
 
 @keyframes rise { from { transform: translateY(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

@@ -21,6 +21,9 @@ import { ManualMarkerTracker } from './tracking/marker-tracker';
 import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
 import { room } from './config/room';
+import artifactsCfg from './config/artifacts.json';
+import { ArtifactTracker } from './tracking/artifact-tracker';
+import { ArtifactViewer, type ArtifactItem } from './scenes/artifact-viewer';
 import { showGate, showPermissionSheet, showOnboarding, hasOnboarded, toast } from './ui/screens';
 import { Hud, type Settings } from './ui/hud';
 import { t } from './ui/i18n';
@@ -50,6 +53,36 @@ const markers = new ManualMarkerTracker();
 const floorVision = new FloorVision();
 const floorDist = new Float32Array(GRID_W * GRID_H);
 indoor.petals.sources.push(hand);
+
+// ---------------------------------------------------------------- hiện vật 3D trên ảnh in
+const artifactItems = artifactsCfg.items as unknown as ArtifactItem[];
+const artTracker = new ArtifactTracker(
+  feed,
+  artifactItems.map((i) => ({ targetIndex: i.targetIndex, physicalWidth: i.physicalWidth })),
+  artifactsCfg.targets,
+  room.camera.longEdgeFovDeg,
+);
+const artViewer = new ArtifactViewer(R.scene, R.camera, R.gl, artifactItems);
+artTracker.onFound = (i) => {
+  if (settings.mode === 'indoor') artViewer.show(i);
+};
+artTracker.onLost = () => {
+  R.camera.updateMatrixWorld();
+  artViewer.lose(R.camera.matrixWorld, artTracker.matrix);
+};
+artViewer.onChange = (item, mode) => {
+  const on = mode !== 'hidden';
+  // đang xem hiện vật: màn hình dành cho cử chỉ xoay/phóng to, tạm nghỉ nhận diện tay,
+  // giảm hoa ở giữa màn hình để không che model
+  sensors.dragBlocked = on;
+  hand.paused = on;
+  artTracker.paused = mode === 'inspect';
+  indoor.petals.readingMode = settings.reading || on;
+  hud?.setArtifact(item, mode);
+  if (on && navigator.vibrate) navigator.vibrate(8);
+};
+artViewer.attachGestures($('gl'), () => settings.mode === 'indoor');
+let artHintShown = false;
 
 const reduceSys = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings: Settings = {
@@ -93,6 +126,15 @@ async function onStart() {
   settings.mode = choice.mode;
   gate.leave();
   hud = new Hud(ui, settings, handlers);
+  hud.artHandlers = {
+    inspect: () => artViewer.inspect(),
+    reset: () => artViewer.resetView(),
+    close: () => {
+      artViewer.close();
+      // vẫn đang thấy ảnh → hiện lại trên ảnh
+      if (artTracker.current >= 0) setTimeout(() => artViewer.show(artTracker.current), 350);
+    },
+  };
   applySettings();
 
   if (choice.xr) {
@@ -137,8 +179,21 @@ async function startCameraMode() {
     hand.init().then(() => {
       hud?.setHand(hand.active ? 'seen' : 'off');
       if (hand.status === 'error') toast(ui, t('errHand'), 4000, true);
+      // nhận diện ảnh hiện vật khởi động sau tay để không giành GPU lúc đầu
+      if (settings.mode === 'indoor') startArtifacts();
     });
   }
+}
+
+function startArtifacts() {
+  if (!hasCamera || xr.session) return;
+  artViewer.preload();
+  artTracker.start().then(() => {
+    if (artTracker.status === 'ready' && !artHintShown) {
+      artHintShown = true;
+      setTimeout(() => toast(ui, t('artScan'), 6000), 6000);
+    }
+  });
 }
 
 async function startXR() {
@@ -178,10 +233,14 @@ function setMode(m: 'indoor' | 'outdoor', animate = true) {
     outdoor.setVisible(m === 'outdoor');
     occluder.mesh.visible = false;
     if (m === 'indoor') {
+      artTracker.paused = false;
+      if (hand.status === 'ready') startArtifacts();
       localizer.setX(0.6);
       sensors.recenter(0); // nhìn vào trong hành lang
       indoor.petals.clear();
     } else {
+      artTracker.paused = true;
+      if (artViewer.visible) artViewer.close();
       outdoor.progress = 0;
       sensors.recenter(-Math.PI / 2); // nhìn vào pano P
     }
@@ -193,7 +252,8 @@ function setMode(m: 'indoor' | 'outdoor', animate = true) {
 
 function applySettings() {
   const p = indoor.petals;
-  p.readingMode = settings.reading;
+  p.readingMode = settings.reading || artViewer.visible;
+  artViewer.reduceMotion = settings.reduceMotion;
   p.density = settings.density;
   p.reduceMotion = settings.reduceMotion;
   document.body.classList.toggle('reduce-motion', settings.reduceMotion);
@@ -444,6 +504,7 @@ function tick(now: number, frame?: XRFrame) {
       const m = Math.max(s.r, s.g, s.b, 1e-3);
       light.setRGB(b * (0.88 + 0.12 * (s.r / m)), b * (0.88 + 0.12 * (s.g / m)), b * (0.88 + 0.12 * (s.b / m)));
       indoor.petals.setLight(light);
+      artViewer.setLight(s.lum);
       darkFor = s.lum < 0.08 ? darkFor + 0.5 : 0;
       if (darkFor > 4 && !darkWarned && settings.mode === 'indoor') {
         darkWarned = true;
@@ -462,6 +523,8 @@ function tick(now: number, frame?: XRFrame) {
     indoor.petals.lookDown = down;
     if (!inXR && hasCamera) {
       hand.update(now, feed, R.camera);
+      artTracker.smooth(dt);
+      artViewer.update(dt, artTracker.poseReady ? artTracker.matrix : null);
       occluder.update(hand, camPosRoom);
       if (hand.active && hand.palmVel.length() > 1.0 && now - gustAt > 120) {
         gustAt = now;
@@ -524,4 +587,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer };

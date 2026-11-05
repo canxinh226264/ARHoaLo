@@ -1,0 +1,40 @@
+{
+  "_doc": "Hiện vật 3D hiện ra khi camera nhận ra ảnh in. targetIndex = thứ tự ảnh lúc biên dịch markers/artifacts.mind ở thư mục bản chạy (sync-public chép vào source/public) (tools/compile-targets.html). physicalWidth = bề rộng ảnh in thật (m) [CẦN ĐO]. Tên/mô tả: BTC điền, để trống thì thẻ chỉ hiện tên.",
+  "targets": "markers/artifacts.mind",
+  "items": [
+    {
+      "id": "bucket",
+      "targetIndex": 0,
+      "model": "models/hienvat/bucket.glb",
+      "image": "source/markers-src/artifact-bucket.jpg",
+      "physicalWidth": 0.3,
+      "size": 0.8,
+      "offset": [
+        0,
+        0,
+        0.28
+      ],
+      "titleVi": "Chậu tôn có quai",
+      "titleEn": "Metal basin with handles",
+      "descVi": "",
+      "descEn": ""
+    },
+    {
+      "id": "crate",
+      "targetIndex": 1,
+      "model": "models/hienvat/crate.glb",
+      "image": "source/markers-src/artifact-crate.jpg",
+      "physicalWidth": 0.3,
+      "size": 0.8,
+      "offset": [
+        0,
+        0,
+        0.28
+      ],
+      "titleVi": "Thùng gỗ",
+      "titleEn": "Wooden crate",
+      "descVi": "",
+      "descEn": ""
+    }
+  ]
+}

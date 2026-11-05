@@ -87,6 +87,15 @@ export class CameraFeed {
     return (2 * Math.atan(tanV * visibleFrac) * 180) / Math.PI;
   }
 
+  /** Tiêu cự camera tính theo pixel của khung hình video (cùng giả định FOV với camera 3D). */
+  videoFocalPx(longEdgeFovDeg: number): number {
+    const vw = this.video.videoWidth || 1280;
+    const vh = this.video.videoHeight || 720;
+    const half = (longEdgeFovDeg * Math.PI) / 360;
+    const tanV = vw >= vh ? Math.tan(half) * (vh / vw) : Math.tan(half);
+    return vh / 2 / tanV;
+  }
+
   /** Toạ độ chuẩn hoá của video (0..1) → NDC màn hình (-1..1). */
   videoToNdc(u: number, v: number, L = this.layout()): [number, number] {
     const uu = this.mirrored ? 1 - u : u;

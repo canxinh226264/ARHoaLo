@@ -21,6 +21,8 @@ export class Sensors {
   hasOrientation = false;
   permission: PermState = 'unsupported';
   dragMode = false;
+  /** Đặt true khi cử chỉ trên màn hình đang dùng để xoay hiện vật 3D. */
+  dragBlocked = false;
 
   private raw = new THREE.Quaternion();
   private yawOffset = 0;
@@ -96,7 +98,7 @@ export class Sensors {
     let id: number | null = null;
     let lx = 0, ly = 0;
     el.addEventListener('pointerdown', (e) => {
-      if (this.hasOrientation) return;
+      if (this.hasOrientation || this.dragBlocked) return;
       id = e.pointerId;
       lx = e.clientX;
       ly = e.clientY;
