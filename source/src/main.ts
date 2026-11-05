@@ -20,6 +20,7 @@ import { HandTracker, HandOccluder } from './tracking/hand-tracker';
 import { ManualMarkerTracker } from './tracking/marker-tracker';
 import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
+import { GuideScene } from './scenes/guide-scene';
 import { room } from './config/room';
 import artifactsCfg from './config/artifacts.json';
 import { ArtifactTracker } from './tracking/artifact-tracker';
@@ -44,6 +45,7 @@ const world = new THREE.Group(); // hệ toạ độ phòng (WebXR đặt lại 
 R.scene.add(world);
 const indoor = new IndoorScene(world);
 const outdoor = new OutdoorScene(R.scene, R.camera);
+const guide = new GuideScene(R.scene);
 const hand = new HandTracker();
 const occluder = new HandOccluder(world);
 const localizer = new CorridorLocalizer();
@@ -226,11 +228,13 @@ async function startXR() {
 }
 
 // ---------------------------------------------------------------- chế độ
-function setMode(m: 'indoor' | 'outdoor', animate = true) {
+function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
   const apply = () => {
     settings.mode = m;
     indoor.setVisible(m === 'indoor');
     outdoor.setVisible(m === 'outdoor');
+    guide.setVisible(m === 'guide');
+    if (m !== 'guide') guide.stop();
     occluder.mesh.visible = false;
     if (m === 'indoor') {
       artTracker.paused = false;
@@ -241,8 +245,10 @@ function setMode(m: 'indoor' | 'outdoor', animate = true) {
     } else {
       artTracker.paused = true;
       if (artViewer.visible) artViewer.close();
-      outdoor.progress = 0;
-      sensors.recenter(-Math.PI / 2); // nhìn vào pano P
+      if (m === 'outdoor') {
+        outdoor.progress = 0;
+        sensors.recenter(-Math.PI / 2); // nhìn vào pano P
+      }
     }
     hud?.update(settings);
   };
@@ -284,6 +290,11 @@ const handlers = {
     if (readingChanged) toast(ui, settings.reading ? t('readingOn') : t('readingOff'), 2400);
   },
   recenter() {
+    // đổi hướng giữa chừng sẽ làm lệch điểm đến đã đặt, nên đặt lại luôn
+    if (settings.mode === 'guide') {
+      guideOpen();
+      return;
+    }
     floorVision.reset();
     indoor.petals.clear();
     sensors.recenter(settings.mode === 'indoor' ? 0 : -Math.PI / 2);
@@ -312,9 +323,30 @@ const handlers = {
     if (xr.session) xr.replace();
     else toast(ui, t('floorScan'), 6000);
   },
+  guideOpen,
+  guideFloorDone() {
+    guide.lastSetup = { ...guide.lastSetup, floorNow: guide.floorTo };
+    guideOpen();
+  },
+  guideExit() {
+    setMode('indoor', true);
+  },
+};
+
+/** Mở biểu mẫu đặt điểm đến; hướng "phía trước" lấy theo lúc bấm bắt đầu. */
+function guideOpen() {
+  hud?.openGuideSetup(guide.lastSetup, (s) => {
+    if (settings.mode !== 'guide') setMode('guide', false);
+    guide.start(s, R.camera);
+  });
+}
+guide.onArrive = () => {
+  toast(ui, t('guideArrived'), 4000);
+  if (settings.sound) chime();
 };
 
 markers.onFix = (fix) => {
+  if (settings.mode === 'guide') return;
   localizer.fixAtPanel(fix.panel);
   sensors.recenter(fix.panel.side === 'orange' ? Math.PI / 2 : -Math.PI / 2);
   toast(ui, `${t('fixed')} ${fix.panel.id}`, 2200);
@@ -326,6 +358,7 @@ let arrivedPrompted = false;
 sensors.onStep = () => {
   fwd.set(0, 0, -1).applyQuaternion(R.camera.quaternion);
   if (settings.mode === 'indoor') localizer.onStep(fwd);
+  else if (settings.mode === 'guide') guide.step(fwd);
   else {
     outdoor.step(fwd);
     if (outdoor.arrived && !arrivedPrompted) {
@@ -450,6 +483,8 @@ const roomToClip = new THREE.Matrix4();
 const invWorldQ = new THREE.Quaternion();
 const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
 const VISION_MS = 100;
+/** Khung hình dọc hẹp: dải sáng lệch quá góc này (độ) là gần ra khỏi màn hình, nên nhắc xoay máy. */
+const GUIDE_IN_VIEW = 25;
 let visionAt = 0;
 const visionQ = new THREE.Quaternion();
 // ?debug: ô nhỏ góc trên trái cho thấy app đang coi đâu là sàn (xanh)
@@ -482,6 +517,7 @@ function tick(now: number, frame?: XRFrame) {
     localizer.update(dt);
     R.camera.quaternion.copy(sensors.quaternion);
     if (settings.mode === 'indoor') R.camera.position.copy(localizer.position);
+    else if (settings.mode === 'guide') R.camera.position.set(guide.position.x, room.user.eyeHeightDefault, guide.position.y);
     else outdoor.eyePosition(R.camera.position, room.user.eyeHeightDefault);
     if (feed.ready) R.setVFov(feed.displayVFov(room.camera.longEdgeFovDeg));
     R.camera.updateMatrixWorld();
@@ -513,6 +549,21 @@ function tick(now: number, frame?: XRFrame) {
     }
   }
 
+  // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
+  const useVision = !inXR && hasCamera && settings.mode !== 'outdoor';
+  const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored;
+  if (useVision && !canScan) floorVision.reset();
+  if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
+    const grid = feed.sampleGrid(GRID_W, GRID_H);
+    if (grid) {
+      floorDistances(floorDist, R.camera.projectionMatrixInverse, R.camera.quaternion, R.camera.position.y);
+      floorVision.update(grid, floorDist, Math.min(0.5, (now - visionAt) / 1000));
+      visionAt = now;
+      visionQ.copy(R.camera.quaternion);
+      if (dbgMask) drawFloorMask(dbgMask);
+    }
+  }
+
   if (settings.mode === 'indoor') {
     const up = THREE.MathUtils.smoothstep(pitch, 32, 52);
     const down = THREE.MathUtils.smoothstep(-pitch, 25, 50);
@@ -532,25 +583,16 @@ function tick(now: number, frame?: XRFrame) {
       }
     }
     if (demoHand) demoHand.update(dt, R.camera);
-    // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
-    const useVision = !inXR && hasCamera;
     indoor.petals.floorMask = useVision ? floorVision : null;
-    const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored;
-    if (useVision && !canScan) floorVision.reset();
-    if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
-      const grid = feed.sampleGrid(GRID_W, GRID_H);
-      if (grid) {
-        floorDistances(floorDist, R.camera.projectionMatrixInverse, R.camera.quaternion, R.camera.position.y);
-        floorVision.update(grid, floorDist, Math.min(0.5, (now - visionAt) / 1000));
-        visionAt = now;
-        visionQ.copy(R.camera.quaternion);
-        if (dbgMask) drawFloorMask(dbgMask);
-      }
-    }
     if (!inXR || xr.placed) {
       roomToClip.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(world.matrixWorld);
       indoor.petals.update(dt, roomToClip, camPosRoom, fwdRoom);
     }
+  } else if (settings.mode === 'guide') {
+    guide.update(dt, R.camera, canScan && floorVision.ready ? floorVision : null);
+    hud?.setRemaining(guide.remaining);
+    hud?.setTurn(guide.turnHint(fwdRoom), GUIDE_IN_VIEW);
+    hud?.setGuide(guide);
   } else {
     outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
     hud?.setRemaining(outdoor.remaining);
@@ -587,4 +629,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers };

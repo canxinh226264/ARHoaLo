@@ -2,9 +2,10 @@ import { t, other, getLang, setLang, onLang } from './i18n';
 import { icons } from './icons';
 import { el, sheet } from './screens';
 import { landmarkPanels } from '../config/room';
+import type { GuidePhase, GuideSetup } from '../scenes/guide-scene';
 
 export interface Settings {
-  mode: 'indoor' | 'outdoor';
+  mode: 'indoor' | 'outdoor' | 'guide';
   reading: boolean;
   sound: boolean;
   battery: boolean;
@@ -31,6 +32,9 @@ export interface HudHandlers {
   arrived(): void;
   exitXr?(): void;
   replaceFloor?(): void;
+  guideOpen?(): void;
+  guideFloorDone?(): void;
+  guideExit?(): void;
 }
 
 const PANEL_LABEL: Record<string, string> = {
@@ -44,6 +48,8 @@ const PANEL_LABEL: Record<string, string> = {
   C8: 'Chợ Tết nay',
   D11: 'Bàn quà, cây đào',
 };
+
+type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number };
 
 export class Hud {
   readonly el: HTMLElement;
@@ -102,16 +108,16 @@ export class Hud {
     const r = Math.round(m);
     if (r === this.remaining) return;
     this.remaining = r;
-    if (this.s.mode === 'outdoor') this.refreshWay();
+    if (this.s.mode !== 'indoor') this.refreshWay();
   }
 
   /** Gợi ý hướng khi dải sáng nằm ngoài khung hình (góc có dấu, + bên phải). */
-  setTurn(deg: number) {
+  setTurn(deg: number, inView = 50) {
     const a = Math.abs(deg);
-    const k = a < 50 ? '' : a > 130 ? 'turnBack' : deg > 0 ? 'turnRight' : 'turnLeft';
+    const k = a < inView ? '' : a > 130 ? 'turnBack' : deg > 0 ? 'turnRight' : 'turnLeft';
     if (k === this.turn) return;
     this.turn = k;
-    if (this.s.mode === 'outdoor') this.refreshWay();
+    if (this.s.mode !== 'indoor') this.refreshWay();
   }
 
   /** Thẻ thông tin hiện vật 3D (null = ẩn). */
@@ -158,7 +164,69 @@ export class Hud {
     span.textContent = st === 'hold' ? t('handHolding') : st === 'loading' ? t('handLoading') : st === 'seen' ? t('handSeen') : '';
   }
 
+  /** Trạng thái dải sáng thử nghiệm, chỉ vẽ lại khi có thay đổi. */
+  setGuide(g: GuideState) {
+    const p = this.guide;
+    this.guide = { phase: g.phase, blocked: g.blocked, floorNow: g.floorNow, floorTo: g.floorTo };
+    if (this.s.mode === 'guide' && (p.phase !== g.phase || p.blocked !== g.blocked || p.floorNow !== g.floorNow || p.floorTo !== g.floorTo)) this.refreshWay();
+  }
+  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1 };
+
+  private refreshGuide() {
+    const g = this.guide;
+    this.way.hidden = g.phase === 'idle';
+    let body = '';
+    let main = `<button class="btn btn--ghost" type="button" data-gchange>${t('guideChange')}</button>`;
+    if (g.phase === 'floor') {
+      body = `<strong>${g.floorTo < g.floorNow ? t('guideGoDown')(g.floorNow, g.floorTo) : t('guideGoUp')(g.floorNow, g.floorTo)}</strong><span>${t('guideStairs')}</span>`;
+      main = `<button class="btn" type="button" data-gfloor>${t('guideFloorDone')(g.floorTo)}</button>`;
+    } else if (g.phase === 'arrived') {
+      body = `<strong>${t('guideArrived')}</strong>`;
+    } else {
+      const hint = g.blocked ? t('guideBlocked') : this.turn ? `<b style="font-weight:600">${t(this.turn)}</b>` : t('guideLeft')(this.remaining);
+      body = `<strong>${t('guideFollow')}</strong><span class="en">${other('guideFollow')}</span><span>${hint}</span>`;
+    }
+    this.way.innerHTML = `${body}<div class="row">${main}<button class="btn btn--ghost" type="button" data-gexit>${t('guideExit')}</button></div>`;
+    this.way.querySelector('[data-gchange]')?.addEventListener('click', () => this.h.guideOpen?.());
+    this.way.querySelector('[data-gfloor]')?.addEventListener('click', () => this.h.guideFloorDone?.());
+    this.way.querySelector('[data-gexit]')?.addEventListener('click', () => this.h.guideExit?.());
+  }
+
+  /** Biểu mẫu đặt điểm đến. */
+  openGuideSetup(d: GuideSetup, onGo: (s: GuideSetup) => void) {
+    const num = (label: string, key: string, val: number, min: number, max: number, step: number) =>
+      `<label class="opt"><span>${label}</span><input type="number" inputmode="decimal" data-g="${key}" value="${val}" min="${min}" max="${max}" step="${step}" style="width:5.5em;font:inherit;padding:6px 8px;text-align:right"/></label>`;
+    sheet(
+      this.root,
+      `<h2>${t('guideTitle')}</h2><p class="en">${other('guideTitle')}</p><p>${t('guideHint')}</p>
+       ${num(t('guideAhead'), 'ahead', d.ahead, 0, 100, 0.5)}
+       ${num(t('guideRight'), 'right', d.right, -100, 100, 0.5)}
+       ${num(t('guideFloorNow'), 'floorNow', d.floorNow, -5, 100, 1)}
+       ${num(t('guideFloorTo'), 'floorTo', d.floorTo, -5, 100, 1)}
+       <p class="fine" data-gerr hidden>${t('guideBadInput')}</p>
+       <div class="actions"><button class="btn" type="button" data-ok>${t('guideGo')}</button><button class="link" type="button" data-x>${t('close')}</button></div>`,
+      (sh, close) => {
+        const read = (k: string) => parseFloat(sh.querySelector<HTMLInputElement>(`[data-g="${k}"]`)!.value);
+        sh.querySelector('[data-ok]')!.addEventListener('click', () => {
+          const s: GuideSetup = { ahead: read('ahead'), right: read('right'), floorNow: read('floorNow'), floorTo: read('floorTo') };
+          const ok = Object.values(s).every(Number.isFinite) && Number.isInteger(s.floorNow) && Number.isInteger(s.floorTo) && Math.hypot(s.ahead, s.right) <= 100;
+          if (!ok) {
+            sh.querySelector<HTMLElement>('[data-gerr]')!.hidden = false;
+            return;
+          }
+          close();
+          onGo(s);
+        });
+        sh.querySelector('[data-x]')!.addEventListener('click', close);
+      },
+    );
+  }
+
   private refreshWay() {
+    if (this.s.mode === 'guide') {
+      this.refreshGuide();
+      return;
+    }
     const out = this.s.mode === 'outdoor';
     this.way.hidden = !out;
     if (!out) return;
@@ -176,7 +244,7 @@ export class Hud {
 
   refresh() {
     const indoor = this.s.mode === 'indoor';
-    this.modeChip.innerHTML = `${indoor ? icons.door : icons.path}<span>${indoor ? t('modeIndoor') : t('modeOutdoor')}</span>`;
+    this.modeChip.innerHTML = `${indoor ? icons.door : icons.path}<span>${indoor ? t('modeIndoor') : this.s.mode === 'guide' ? t('modeGuide') : t('modeOutdoor')}</span>`;
     this.modeChip.setAttribute('aria-label', `${t('modeIndoor')} / ${t('modeOutdoor')}`);
     this.readBtn.setAttribute('aria-pressed', String(this.s.reading));
     this.readBtn.setAttribute('aria-label', t('reading'));
@@ -206,6 +274,7 @@ export class Hud {
        <button class="opt-btn" type="button" data-tut>${t('tutorial')}</button>
        <button class="opt-btn" type="button" data-help>${t('help')}</button>
        <button class="opt-btn" type="button" data-lang>${t('language')}</button>
+       ${this.xrActive ? '' : `<button class="opt-btn" type="button" data-guide>${t('guideMenu')}<small>${other('guideMenu')}</small></button>`}
        <button class="opt-btn" type="button" data-refloor>${t('xrReplace')}<small>${other('xrReplace')}</small></button>
        ${this.xrActive ? `<button class="opt-btn" type="button" data-exitxr>${t('exitXr')}</button>` : ''}
        <p class="fine" style="margin-top:12px">${t('privacy')}</p>
@@ -236,6 +305,7 @@ export class Hud {
             (s2, c2) => s2.querySelector('[data-x]')!.addEventListener('click', c2));
         });
         sh.querySelector('[data-lang]')!.addEventListener('click', () => { close(); setLang(getLang() === 'vi' ? 'en' : 'vi'); });
+        sh.querySelector('[data-guide]')?.addEventListener('click', () => { close(); this.h.guideOpen?.(); });
         sh.querySelector('[data-refloor]')?.addEventListener('click', () => { close(); this.h.replaceFloor?.(); });
         sh.querySelector('[data-exitxr]')?.addEventListener('click', () => { close(); this.h.exitXr?.(); });
       },

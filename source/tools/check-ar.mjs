@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -123,4 +123,171 @@ test('Canopy covers the entire corridor and remains spread at low detail', () =>
   const high = coverage(); b.setDetail(0.55); const low = coverage();
   assert.ok(high.coverage > 0.97, JSON.stringify(high)); assert.ok(low.coverage > 0.95, JSON.stringify(low));
   assert.ok(low.count < high.count); console.log('Canopy:', { high, low });
+});
+
+// ---------------------------------------------------------------- dải sáng dẫn đường
+const V2 = (x, y) => new THREE.Vector2(x, y);
+/** Đặt vùng vật cản lên bản đồ của planner, toạ độ mét. */
+function paint(p, x0, z0, x1, z1) {
+  for (let x = x0; x <= x1; x += 0.05) for (let z = z0; z <= z1; z += 0.05) {
+    const i = p.index(x, z);
+    if (i >= 0) p.score[i] = -1;
+  }
+}
+/** Khoảng cách gần nhất từ đường tới một vùng hình chữ nhật. */
+function clearance(points, x0, z0, x1, z1) {
+  let best = Infinity;
+  for (let i = 1; i < points.length; i++) {
+    for (let k = 0; k <= 50; k++) {
+      const q = points[i - 1].clone().lerp(points[i], k / 50);
+      best = Math.min(best, Math.hypot(Math.max(x0 - q.x, 0, q.x - x1), Math.max(z0 - q.y, 0, q.y - z1)));
+    }
+  }
+  return best;
+}
+const pathLen = (pts) => pts.slice(1).reduce((s, q, i) => s + q.distanceTo(pts[i]), 0);
+
+test('Guide path goes straight when nothing is in the way', () => {
+  const p = new GuidePlanner();
+  const r = p.plan(V2(0, 0), V2(0, -4));
+  assert.equal(r.blocked, false);
+  assert.ok(pathLen(r.points) < 4.2, String(pathLen(r.points)));
+  assert.ok(r.points.at(-1).distanceTo(V2(0, -4)) < 0.01);
+});
+test('Guide path walks around an obstacle without touching it', () => {
+  const p = new GuidePlanner();
+  paint(p, -0.6, -2.6, 0.6, -1.8);
+  const r = p.plan(V2(0, 0), V2(0, -4));
+  assert.equal(r.blocked, false);
+  assert.ok(clearance(r.points, -0.6, -2.6, 0.6, -1.8) > 0.15, String(clearance(r.points, -0.6, -2.6, 0.6, -1.8)));
+  assert.ok(r.points.at(-1).distanceTo(V2(0, -4)) < 0.01);
+});
+test('Guide path reports a closed way and stops before the wall', () => {
+  const p = new GuidePlanner();
+  paint(p, -5, -2.2, 5, -2);
+  const r = p.plan(V2(0, 0), V2(0, -4));
+  assert.equal(r.blocked, true);
+  assert.ok(Math.min(...r.points.map((q) => q.y)) > -2, 'must not cross');
+});
+test('A destination on an object counts as reachable; the path stops beside it', () => {
+  const p = new GuidePlanner();
+  paint(p, -0.5, -3.2, 0.5, -2.8);
+  const r = p.plan(V2(0, 0), V2(0, -3));
+  assert.equal(r.blocked, false);
+  assert.ok(clearance(r.points, -0.5, -3.2, 0.5, -2.8) > 0.1);
+});
+test('Guide path prefers floor it has seen over going around through the unseen', () => {
+  const p = new GuidePlanner();
+  for (let x = -1.2; x <= 1.2; x += 0.05) for (let z = -4; z <= 0.2; z += 0.05) { const i = p.index(x, z); if (i >= 0) p.score[i] = 1; }
+  paint(p, -0.25, -2.2, 0.25, -1.8);
+  const r = p.plan(V2(0, 0), V2(0, -3.5));
+  assert.equal(r.blocked, false);
+  assert.ok(Math.max(...r.points.map((q) => Math.abs(q.x))) < 1.25, JSON.stringify(r.points));
+  assert.ok(clearance(r.points, -0.25, -2.2, 0.25, -1.8) > 0.15);
+});
+test('Guide path reaches a destination beyond the local map', () => {
+  const p = new GuidePlanner();
+  const r = p.plan(V2(0, 0), V2(0, -30));
+  assert.equal(r.blocked, false);
+  assert.ok(r.points.at(-1).distanceTo(V2(0, -30)) < 0.01);
+});
+test('Guide path does not trap the user standing next to an obstacle', () => {
+  const p = new GuidePlanner();
+  paint(p, -0.3, -0.5, 0.3, -0.2);
+  const r = p.plan(V2(0, 0), V2(0, -4));
+  assert.equal(r.blocked, false);
+});
+test('Guide path keeps its side instead of flipping between replans', () => {
+  const p = new GuidePlanner();
+  paint(p, -0.6, -2.6, 0.6, -1.8);
+  const side = (pts) => Math.sign(pts.reduce((a, q) => (Math.abs(q.x) > Math.abs(a) ? q.x : a), 0));
+  const first = side(p.plan(V2(0, 0), V2(0, -4)).points);
+  for (let i = 1; i <= 6; i++) {
+    // người đi thẳng, lệch nhẹ về phía đối diện: đường cũ còn đi được thì giữ nguyên
+    assert.equal(side(p.plan(V2(-first * 0.02 * i, -0.1 * i), V2(0, -4)).points), first);
+  }
+});
+test('Guide map keeps obstacles after recentering and forgets them over time', () => {
+  const p = new GuidePlanner();
+  paint(p, 1, -1, 1.4, -0.6);
+  p.recenter(3, 0);
+  const i = p.index(1.2, -0.8);
+  assert.ok(i >= 0 && p.score[i] === -1);
+  const mask = new Float32Array(W * H).fill(0.45); // chưa rõ: không thêm bằng chứng
+  const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+  for (let k = 0; k < 300; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, new THREE.Vector3(3, 1.45, 0), 0.1);
+  assert.ok(Math.abs(p.score[i]) < 0.1, String(p.score[i]));
+});
+test('Camera mask becomes obstacles on the ground, ignoring the body at the frame edge', () => {
+  const p = new GuidePlanner();
+  const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+  cam.rotation.x = -0.6;
+  cam.updateMatrixWorld();
+  const mask = new Float32Array(W * H).fill(1);
+  const eye = new THREE.Vector3(0, 1.45, 0);
+  // mép dưới khung hình (hay có chân) đen hoàn toàn, thêm một vật ở giữa khung
+  for (let r = Math.floor(H * 0.85); r < H; r++) for (let c = 0; c < W; c++) mask[r * W + c] = 0;
+  for (let r = 34; r < 40; r++) for (let c = 14; c < 22; c++) mask[r * W + c] = 0;
+  for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
+  let blockedNear = 0, blockedMid = 0;
+  for (let i = 0; i < p.score.length; i++) {
+    if (p.score[i] >= -0.25) continue;
+    const q = p.centerOf(i);
+    if (q.length() < 1) blockedNear++;
+    else if (q.y < 0 && Math.abs(q.x) < 1) blockedMid++;
+  }
+  assert.equal(blockedNear, 0);
+  assert.ok(blockedMid > 0);
+});
+test('The holder\'s leg rising from the frame edge is not an obstacle, a separate object is', () => {
+  const p = new GuidePlanner();
+  const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+  cam.rotation.x = -0.6;
+  cam.updateMatrixWorld();
+  const mask = new Float32Array(W * H).fill(1);
+  for (let r = 46; r < H; r++) for (let c = 0; c < W; c++) mask[r * W + c] = 0; // chân chiếm cả bề ngang
+  const eye = new THREE.Vector3(0, 1.45, 0);
+  for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
+  assert.equal(p.score.filter((s) => s < -0.25).length, 0);
+  const r = p.plan(V2(0, 0), V2(0, -3));
+  assert.equal(r.blocked, false);
+  assert.ok(pathLen(r.points) < 3.2, String(pathLen(r.points)));
+  // vật tách rời ở cùng khoảng cách vẫn là vật cản
+  for (let r2 = 46; r2 < H; r2++) for (let c = 0; c < W; c++) mask[r2 * W + c] = 1;
+  for (let r2 = 42; r2 < 47; r2++) for (let c = 14; c < 22; c++) mask[r2 * W + c] = 0;
+  for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
+  assert.ok(p.score.filter((s) => s < -0.25).length > 0);
+});
+test('Guide places the destination by heading, waits on another floor and detects arrival', () => {
+  const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
+  globalThis.document = { createElement: () => ({ getContext: () => ctx }) };
+  const g = new GuideScene(new THREE.Scene());
+  const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+  cam.position.y = 1.45;
+  cam.updateMatrixWorld();
+  g.start({ ahead: 5, right: 2, floorNow: 1, floorTo: 1 }, cam);
+  assert.equal(g.phase, 'walk');
+  assert.ok(g.target.distanceTo(V2(2, -5)) < 1e-6, JSON.stringify(g.target));
+
+  g.start({ ahead: 5, right: 0, floorNow: 4, floorTo: 1 }, cam);
+  assert.equal(g.phase, 'floor');
+  g.step(new THREE.Vector3(0, 0, -1));
+  assert.equal(g.position.length(), 0, 'no walking while changing floors');
+  g.update(0.1, cam, null);
+  assert.equal(g.ribbon.visible, false);
+
+  // đường vòng sang phải, ngoài khung hình: phải nhắc xoay sang phải
+  g.start({ ahead: 2.4, right: 0.8, floorNow: 1, floorTo: 1 }, cam);
+  g.path = [V2(0, 0), V2(1.5, -1.3), V2(0.8, -2.4)];
+  assert.ok(g.turnHint(new THREE.Vector3(0, 0, -1)) > 25);
+
+  let arrived = 0;
+  g.onArrive = () => arrived++;
+  g.start({ ahead: 2, right: 0, floorNow: 1, floorTo: 1 }, cam);
+  g.update(0.1, cam, null);
+  assert.equal(g.ribbon.visible, true);
+  for (let i = 0; i < 2; i++) g.step(new THREE.Vector3(0, 0, -1));
+  g.update(0.1, cam, null);
+  assert.equal(g.phase, 'arrived');
+  assert.equal(arrived, 1);
 });

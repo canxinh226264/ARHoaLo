@@ -10,6 +10,15 @@ Bản chạy nằm ngay trong thư mục này (`index.html`, `assets`, `sw.js`).
 - Tán đào: 36 cụm cành cách khoảng 0,85 m, phủ hết hành lang 26 m; tăng nhánh con và cụm hoa. Khoảng 40.826 bông ở mức cao, 22.450 ở mức thấp, dùng instancing. Vùng cuối hành lang trước đây cấm cành ảo nay cũng được phủ theo yêu cầu.
 - Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
 
+## Dải sáng dẫn đường (thử nghiệm)
+
+**Tuỳ chọn → Dải sáng dẫn đường (thử nghiệm)**: đứng yên, hướng máy về phía điểm đến, nhập số mét phía trước và sang phải (số âm là sang trái).
+
+- Vị trí ước lượng bằng bước chân, không dùng GPS và không cần API. Càng đi xa càng lệch; lệch thì bấm "Đổi điểm đến" để đặt lại.
+- Dải sáng đi thẳng về đích và lượn quanh vật cản thấy được trên camera (`core/guide-planner.ts`). Vật cản được nhận theo màu nên vật trùng màu sàn không được nhận, và app không biết tường hay phòng chưa lọt vào camera.
+- Khác tầng: chỉ hiện lời nhắc đi cầu thang, không vẽ dải sáng. Web không đo được tầng, nên người dùng tự nhập tầng, xác nhận khi đã tới rồi đặt lại điểm đến.
+- Chế độ này chỉ có ở chế độ camera thường, không có trong AR nâng cao, và cần cảm biến chuyển động. Tính năng này chỉ để thử nghiệm, không thay thế việc tự quan sát khi di chuyển.
+
 ## Chạy lại hoặc chỉnh tiếp
 
 Mở terminal trong `source/`:

@@ -19,7 +19,7 @@ const SEED_FAR = 2.8; // Không học từ vùng xa/chân tường khi nhìn nga
 const MIN_SEEDS = 10;
 const MAX_SEEDS = 150;
 /** Bỏ mép dưới màn hình khi lấy màu sàn: hay có chân, tay của chính người cầm máy. */
-const SEED_ROWS = Math.floor(GRID_H * 0.82);
+export const BODY_ROWS = Math.floor(GRID_H * 0.82);
 const MAX_FLOOR_DIST = 5; // m
 const MODE_TOL_C = 6;
 const MODE_TOL_Y = 35;
@@ -125,7 +125,7 @@ export class FloorVision {
 
   private pickSeeds(dist: Float32Array) {
     const seeds: number[] = [];
-    for (let r = Math.floor(GRID_H * 0.55); r < SEED_ROWS; r++) {
+    for (let r = Math.floor(GRID_H * 0.55); r < BODY_ROWS; r++) {
       for (let c = Math.floor(GRID_W * 0.18); c < GRID_W * 0.82; c++) {
         const i = r * GRID_W + c;
         if (dist[i] >= SEED_NEAR && dist[i] <= SEED_FAR) seeds.push(i);
