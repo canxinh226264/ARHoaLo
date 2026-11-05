@@ -1,0 +1,527 @@
+import '@fontsource/eb-garamond/vietnamese-400.css';
+import '@fontsource/eb-garamond/latin-400.css';
+import '@fontsource/eb-garamond/vietnamese-400-italic.css';
+import '@fontsource/eb-garamond/latin-400-italic.css';
+import '@fontsource/eb-garamond/vietnamese-500.css';
+import '@fontsource/eb-garamond/latin-500.css';
+import '@fontsource/eb-garamond/vietnamese-600.css';
+import '@fontsource/eb-garamond/latin-600.css';
+import './ui/styles.css';
+
+import * as THREE from 'three';
+import { CameraFeed, type CameraError } from './core/camera';
+import { Sensors } from './core/sensors';
+import { Renderer } from './core/renderer';
+import { QualityManager } from './core/quality-manager';
+import { CorridorLocalizer } from './core/corridor-localizer';
+import { XRAdapter } from './core/xr-adapter';
+import { FloorVision, floorDistances, GRID_W, GRID_H } from './core/floor-vision';
+import { HandTracker, HandOccluder } from './tracking/hand-tracker';
+import { ManualMarkerTracker } from './tracking/marker-tracker';
+import { IndoorScene } from './scenes/indoor-scene';
+import { OutdoorScene } from './scenes/outdoor-scene';
+import { room } from './config/room';
+import { showGate, showPermissionSheet, showOnboarding, hasOnboarded, toast } from './ui/screens';
+import { Hud, type Settings } from './ui/hud';
+import { t } from './ui/i18n';
+import { petalSwirl, chime } from './ui/transition';
+import type { ColliderSource, DynamicCollider } from './physics/colliders';
+
+// ---------------------------------------------------------------- khởi tạo
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const ui = $<HTMLDivElement>('ui');
+const fx = $<HTMLCanvasElement>('fx');
+const params = new URLSearchParams(location.search);
+const DEBUG = params.has('debug');
+
+const feed = new CameraFeed($<HTMLVideoElement>('cam'));
+const sensors = new Sensors();
+const R = new Renderer($<HTMLCanvasElement>('gl'));
+const world = new THREE.Group(); // hệ toạ độ phòng (WebXR đặt lại ma trận này)
+R.scene.add(world);
+const indoor = new IndoorScene(world);
+const outdoor = new OutdoorScene(R.scene, R.camera);
+const hand = new HandTracker();
+const occluder = new HandOccluder(world);
+const localizer = new CorridorLocalizer();
+const quality = new QualityManager();
+const xr = new XRAdapter(R.gl, world, R.scene);
+const markers = new ManualMarkerTracker();
+const floorVision = new FloorVision();
+const floorDist = new Float32Array(GRID_W * GRID_H);
+indoor.petals.sources.push(hand);
+
+const reduceSys = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const settings: Settings = {
+  mode: 'indoor',
+  reading: false,
+  sound: false, // mặc định tắt tiếng
+  battery: false,
+  reduceMotion: reduceSys,
+  density: 1,
+  guide: params.has('guide'),
+};
+let hud: Hud | null = null;
+let running = false;
+let hasCamera = false;
+
+// ---------------------------------------------------------------- service worker (offline)
+const gate = showGate(ui, onStart);
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  gate.setStatus(t('offlineLoading'));
+  navigator.serviceWorker
+    .register('./sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => gate.setStatus(t('offlineReady')))
+    .catch(() => gate.setStatus(''));
+}
+xr.detect();
+
+// ---------------------------------------------------------------- luồng bắt đầu
+let camPromise: Promise<void> | null = null;
+let permPromise: Promise<string> | null = null;
+
+async function onStart() {
+  const choice = await showPermissionSheet(ui, xr.supported, (c) => {
+    // chạy đồng bộ trong cú bấm (yêu cầu của iOS)
+    if (!c.xr) {
+      permPromise = sensors.requestPermission();
+      camPromise = feed.start();
+    }
+  });
+  if (!choice) return;
+  settings.mode = choice.mode;
+  gate.leave();
+  hud = new Hud(ui, settings, handlers);
+  applySettings();
+
+  if (choice.xr) {
+    await startXR();
+  } else {
+    await startCameraMode();
+  }
+  running = true;
+  R.gl.setAnimationLoop(tick);
+
+  if (!hasOnboarded() && settings.mode === 'indoor') await showOnboarding(ui);
+  // ở AR nâng cao, toast đang là hướng dẫn tìm sàn: nhắc an toàn sau khi đặt xong
+  if (!xr.session) toast(ui, settings.mode === 'indoor' && hasCamera ? `${t('floorScan')} ${t('safety')}` : t('safety'), 6500);
+}
+
+async function startCameraMode() {
+  floorVision.reset();
+  document.body.classList.remove('xr');
+  try {
+    await (camPromise ?? feed.start());
+    hasCamera = true;
+  } catch (e) {
+    const err = e as CameraError;
+    hasCamera = false;
+    document.body.classList.add('no-camera');
+    settings.guide = true;
+    applySettings();
+    toast(ui, err === 'denied' ? t('errDenied') : err === 'insecure' ? t('errInsecure') : t('errNoCam'), 7000, true);
+  }
+  const perm = await (permPromise ?? sensors.requestPermission());
+  sensors.enableDrag($('gl'));
+  if (perm === 'denied') toast(ui, t('errSensorDenied'), 6000, true);
+  else {
+    // nếu sau 1,5 s vẫn không có dữ liệu cảm biến → chế độ kéo để nhìn
+    setTimeout(() => {
+      if (!sensors.hasOrientation && hasCamera) toast(ui, t('errNoSensor'), 5000, true);
+    }, 1500);
+  }
+  setMode(settings.mode, false);
+  if (hasCamera) {
+    hud?.setHand('loading');
+    hand.init().then(() => {
+      hud?.setHand(hand.active ? 'seen' : 'off');
+      if (hand.status === 'error') toast(ui, t('errHand'), 4000, true);
+    });
+  }
+}
+
+async function startXR() {
+  document.body.classList.add('xr');
+  if (hud) hud.xrActive = true;
+  setMode('indoor', false);
+  const hints = { scanning: 'xrScan', notFloor: 'xrNotFloor', ready: 'xrPlace' } as const;
+  xr.onStatus = (s) => {
+    if (s !== 'placed') toast(ui, t(hints[s]), 120000, s === 'notFloor');
+  };
+  xr.onRejected = () => toast(ui, t('xrNotFloor'), 120000, true);
+  xr.onPlaced = () => {
+    indoor.petals.clear();
+    toast(ui, `${t('xrPlaced')}. ${t('safety')}`, 5000);
+  };
+  xr.onFloorChanged = () => {
+    indoor.petals.clear();
+    toast(ui, t('xrFloorFixed'), 5000);
+  };
+  xr.onEnd = () => {
+    if (hud) hud.xrActive = false;
+    startCameraMode();
+  };
+  try {
+    await xr.start(ui);
+  } catch {
+    if (hud) hud.xrActive = false;
+    await startCameraMode();
+  }
+}
+
+// ---------------------------------------------------------------- chế độ
+function setMode(m: 'indoor' | 'outdoor', animate = true) {
+  const apply = () => {
+    settings.mode = m;
+    indoor.setVisible(m === 'indoor');
+    outdoor.setVisible(m === 'outdoor');
+    occluder.mesh.visible = false;
+    if (m === 'indoor') {
+      localizer.setX(0.6);
+      sensors.recenter(0); // nhìn vào trong hành lang
+      indoor.petals.clear();
+    } else {
+      outdoor.progress = 0;
+      sensors.recenter(-Math.PI / 2); // nhìn vào pano P
+    }
+    hud?.update(settings);
+  };
+  if (animate && m === 'indoor') petalSwirl(fx, apply, settings.reduceMotion);
+  else apply();
+}
+
+function applySettings() {
+  const p = indoor.petals;
+  p.readingMode = settings.reading;
+  p.density = settings.density;
+  p.reduceMotion = settings.reduceMotion;
+  document.body.classList.toggle('reduce-motion', settings.reduceMotion);
+  quality.setBatterySaver(settings.battery);
+  applyQuality();
+  indoor.guide.visible = settings.guide;
+  hud?.update(settings);
+}
+
+function applyQuality() {
+  const q = quality.settings;
+  R.setPixelRatio(q.pixelRatio);
+  indoor.petals.maxFalling = q.maxFalling;
+  indoor.petals.maxResting = q.maxResting;
+  indoor.branches.setDetail(q.branchDetail);
+  hand.hz = q.handHz;
+  outdoor.setSparkles(q.sparkles && !settings.battery);
+}
+quality.onChange = applyQuality;
+
+const handlers = {
+  capture,
+  setMode: (m: 'indoor' | 'outdoor') => setMode(m, true),
+  change(s: Partial<Settings>) {
+    const readingChanged = s.reading !== undefined && s.reading !== settings.reading;
+    Object.assign(settings, s);
+    applySettings();
+    if (readingChanged) toast(ui, settings.reading ? t('readingOn') : t('readingOff'), 2400);
+  },
+  recenter() {
+    floorVision.reset();
+    indoor.petals.clear();
+    sensors.recenter(settings.mode === 'indoor' ? 0 : -Math.PI / 2);
+    toast(ui, t('recentered'), 2000);
+  },
+  standAt(id: string) {
+    markers.confirm(id);
+  },
+  tutorial() {
+    showOnboarding(ui);
+  },
+  outdoorAlign() {
+    outdoor.progress = 0;
+    sensors.recenter(-Math.PI / 2);
+    toast(ui, t('outdoorAligned'), 2200);
+  },
+  arrived() {
+    setMode('indoor', true);
+  },
+  exitXr() {
+    xr.end();
+  },
+  replaceFloor() {
+    indoor.petals.clear();
+    floorVision.reset();
+    if (xr.session) xr.replace();
+    else toast(ui, t('floorScan'), 6000);
+  },
+};
+
+markers.onFix = (fix) => {
+  localizer.fixAtPanel(fix.panel);
+  sensors.recenter(fix.panel.side === 'orange' ? Math.PI / 2 : -Math.PI / 2);
+  toast(ui, `${t('fixed')} ${fix.panel.id}`, 2200);
+};
+
+// bước chân → cập nhật vị trí (dead-reckoning)
+const fwd = new THREE.Vector3();
+let arrivedPrompted = false;
+sensors.onStep = () => {
+  fwd.set(0, 0, -1).applyQuaternion(R.camera.quaternion);
+  if (settings.mode === 'indoor') localizer.onStep(fwd);
+  else {
+    outdoor.step(fwd);
+    if (outdoor.arrived && !arrivedPrompted) {
+      arrivedPrompted = true;
+      toast(ui, t('arrivedNear'), 5000);
+    }
+  }
+};
+
+hand.onChange = (active, grabbing) => {
+  if (hand.status !== 'ready') return;
+  hud?.setHand(!active ? 'off' : grabbing ? 'hold' : 'seen');
+};
+indoor.petals.onGrab = () => {
+  if (settings.sound) chime();
+};
+
+// ---------------------------------------------------------------- tay ảo để thử trên máy tính (?demo=hand)
+class DemoHand implements ColliderSource {
+  active = true;
+  private t = 0;
+  private c = new THREE.Vector3();
+  private v = new THREE.Vector3();
+  private q = new THREE.Quaternion();
+  grabbing = false;
+  readonly mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.045, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x0a7fc6, wireframe: true, transparent: true, opacity: 0.6 }),
+  );
+  update(dt: number, cam: THREE.Camera) {
+    this.t += dt;
+    const prev = this.c.clone();
+    const local = new THREE.Vector3(Math.sin(this.t * 0.9) * 0.12, -0.05 + Math.cos(this.t * 1.3) * 0.06, -0.42);
+    this.c.copy(local.applyMatrix4(cam.matrixWorld));
+    this.v.subVectors(this.c, prev).divideScalar(Math.max(dt, 1e-3));
+    this.q.copy(cam.quaternion);
+    this.grabbing = this.t % 9 > 6; // mở 6 s để hứng, nắm 3 s
+    this.mesh.position.copy(this.c);
+  }
+  colliders(): DynamicCollider[] {
+    return [{ kind: 'sphere', c: this.c, r: 0.045, vel: this.v, palm: true }];
+  }
+  cup() {
+    return { center: this.c, radius: 0.07, quaternion: this.q, grabbing: this.grabbing, vel: this.v };
+  }
+}
+const demoHand = params.get('demo') === 'hand' ? new DemoHand() : null;
+if (demoHand) {
+  indoor.petals.sources.push(demoHand);
+  world.add(demoHand.mesh);
+}
+
+// ---------------------------------------------------------------- chụp ảnh
+const titleImg = new Image();
+titleImg.src = new URL('./brand/title-cream.webp', document.baseURI).href;
+
+function capture() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  const W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  if (hasCamera && feed.ready) {
+    const L = feed.layout();
+    ctx.save();
+    if (feed.mirrored) {
+      ctx.translate(W, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(feed.video, -L.ox * dpr, -L.oy * dpr, L.vw * L.scale * dpr, L.vh * L.scale * dpr);
+    ctx.restore();
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#f3efe2');
+    g.addColorStop(1, '#cfc6b1');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // vẽ lại cảnh rồi chép ngay trong cùng tác vụ (không cần preserveDrawingBuffer)
+  R.render();
+  ctx.drawImage(R.gl.domElement, 0, 0, W, H);
+  // chữ ký triển lãm ở góc dưới
+  const grad = ctx.createLinearGradient(0, H * 0.78, 0, H);
+  grad.addColorStop(0, 'rgba(0,58,110,0)');
+  grad.addColorStop(1, 'rgba(0,58,110,0.55)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, H * 0.78, W, H * 0.22);
+  if (titleImg.complete && titleImg.naturalWidth) {
+    const tw = Math.min(W * 0.42, 420 * dpr);
+    const th = (tw * titleImg.naturalHeight) / titleImg.naturalWidth;
+    ctx.drawImage(titleImg, 20 * dpr, H - th - 22 * dpr, tw, th);
+  }
+  ctx.fillStyle = 'rgba(252,250,240,0.9)';
+  ctx.font = `italic ${14 * dpr}px "EB Garamond", serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText('Di tích Nhà tù Hỏa Lò · Xuân 2027', W - 18 * dpr, H - 24 * dpr);
+  const flash = document.createElement('div');
+  flash.className = 'flash';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 500);
+  c.toBlob(
+    (blob) => {
+      if (!blob || !hud) return;
+      hud.showPhoto(URL.createObjectURL(blob), blob);
+    },
+    'image/jpeg',
+    0.9,
+  );
+}
+
+// ---------------------------------------------------------------- vòng lặp
+let last = performance.now();
+let lightAt = 0;
+let darkFor = 0;
+let darkWarned = false;
+let gustAt = 0;
+const light = new THREE.Color(1, 1, 1);
+const camPosRoom = new THREE.Vector3();
+const fwdRoom = new THREE.Vector3();
+const roomToClip = new THREE.Matrix4();
+const invWorldQ = new THREE.Quaternion();
+const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
+const VISION_MS = 100;
+let visionAt = 0;
+const visionQ = new THREE.Quaternion();
+// ?debug: ô nhỏ góc trên trái cho thấy app đang coi đâu là sàn (xanh)
+const dbgMask = DEBUG ? document.body.appendChild(Object.assign(document.createElement('canvas'), { width: GRID_W, height: GRID_H })) : null;
+if (dbgMask) dbgMask.style.cssText = 'position:fixed;left:8px;top:8px;width:72px;height:128px;z-index:60;opacity:.75;pointer-events:none;image-rendering:pixelated;background:#000';
+
+function drawFloorMask(c: HTMLCanvasElement) {
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  const img = ctx.createImageData(GRID_W, GRID_H);
+  floorVision.mask.forEach((m, i) => {
+    img.data[i * 4 + 1] = m * 255;
+    img.data[i * 4 + 3] = 255;
+  });
+  ctx.putImageData(img, 0, 0);
+}
+
+function tick(now: number, frame?: XRFrame) {
+  if (!running) return;
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  const inXR = !!xr.session;
+  let cam: THREE.Camera = R.camera;
+
+  if (inXR) {
+    xr.frame(frame, now);
+    cam = R.gl.xr.getCamera();
+  } else {
+    sensors.update(dt);
+    localizer.update(dt);
+    R.camera.quaternion.copy(sensors.quaternion);
+    if (settings.mode === 'indoor') R.camera.position.copy(localizer.position);
+    else outdoor.eyePosition(R.camera.position, room.user.eyeHeightDefault);
+    if (feed.ready) R.setVFov(feed.displayVFov(room.camera.longEdgeFovDeg));
+    R.camera.updateMatrixWorld();
+  }
+
+  // camera trong hệ toạ độ phòng
+  world.updateMatrixWorld();
+  camPosRoom.setFromMatrixPosition(cam.matrixWorld);
+  world.worldToLocal(camPosRoom);
+  world.getWorldQuaternion(invWorldQ).invert();
+  fwdRoom.set(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(invWorldQ);
+  const pitch = (Math.asin(THREE.MathUtils.clamp(fwdRoom.y, -1, 1)) * 180) / Math.PI;
+
+  // ánh sáng từ camera (2 lần/giây)
+  if (now - lightAt > 500 && hasCamera && !inXR) {
+    lightAt = now;
+    const s = feed.sampleLight();
+    if (s) {
+      const b = THREE.MathUtils.lerp(0.62, 1.04, THREE.MathUtils.smoothstep(s.lum, 0.05, 0.55));
+      const m = Math.max(s.r, s.g, s.b, 1e-3);
+      light.setRGB(b * (0.88 + 0.12 * (s.r / m)), b * (0.88 + 0.12 * (s.g / m)), b * (0.88 + 0.12 * (s.b / m)));
+      indoor.petals.setLight(light);
+      darkFor = s.lum < 0.08 ? darkFor + 0.5 : 0;
+      if (darkFor > 4 && !darkWarned && settings.mode === 'indoor') {
+        darkWarned = true;
+        toast(ui, t('errLowLight'), 5000, true);
+      }
+    }
+  }
+
+  if (settings.mode === 'indoor') {
+    const up = THREE.MathUtils.smoothstep(pitch, 32, 52);
+    const down = THREE.MathUtils.smoothstep(-pitch, 25, 50);
+    // tán cây hiện cả khi nhìn thẳng (ở mép trên khung hình), chỉ tắt khi cúi hẳn xuống
+    const canopy = THREE.MathUtils.smoothstep(pitch, -42, -12) * (settings.reading ? 0.55 : 1);
+    indoor.branches.update(dt, canopy, up, light, settings.reduceMotion);
+    indoor.petals.lookUp = up;
+    indoor.petals.lookDown = down;
+    if (!inXR && hasCamera) {
+      hand.update(now, feed, R.camera);
+      occluder.update(hand, camPosRoom);
+      if (hand.active && hand.palmVel.length() > 1.0 && now - gustAt > 120) {
+        gustAt = now;
+        indoor.petals.wind.addGust(hand.palm, hand.palmVel.clone().multiplyScalar(0.5), 0.45, 0.6);
+      }
+    }
+    if (demoHand) demoHand.update(dt, R.camera);
+    // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
+    const useVision = !inXR && hasCamera;
+    indoor.petals.floorMask = useVision ? floorVision : null;
+    const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored;
+    if (useVision && !canScan) floorVision.reset();
+    if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
+      const grid = feed.sampleGrid(GRID_W, GRID_H);
+      if (grid) {
+        floorDistances(floorDist, R.camera.projectionMatrixInverse, R.camera.quaternion, R.camera.position.y);
+        floorVision.update(grid, floorDist, Math.min(0.5, (now - visionAt) / 1000));
+        visionAt = now;
+        visionQ.copy(R.camera.quaternion);
+        if (dbgMask) drawFloorMask(dbgMask);
+      }
+    }
+    if (!inXR || xr.placed) {
+      roomToClip.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(world.matrixWorld);
+      indoor.petals.update(dt, roomToClip, camPosRoom, fwdRoom);
+    }
+  } else {
+    outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
+    hud?.setRemaining(outdoor.remaining);
+    hud?.setTurn(outdoor.turnHint(camPosRoom, fwdRoom));
+  }
+
+  quality.tick(dt);
+  R.render();
+
+  if (dbg && Math.floor(now / 250) !== Math.floor((now - dt * 1000) / 250)) {
+    const st = indoor.petals.stats();
+    dbg.textContent =
+      `fps ${quality.fps.toFixed(0)} · ${quality.batterySaver ? 'low*' : quality.level}\n` +
+      `rơi ${st.falling} · đọng ${st.resting} · giữ ${st.held}\n` +
+      `x ${localizer.position.x.toFixed(2)} z ${localizer.position.z.toFixed(2)} · pitch ${pitch.toFixed(0)}°\n` +
+      `tay ${hand.status}${hand.active ? ` · ${hand.depth.toFixed(2)} m${hand.grabbing ? ' · nắm' : ''}` : ''}`;
+  }
+}
+
+addEventListener('resize', () => {
+  floorVision.reset();
+  R.resize();
+  outdoor.layoutFrame(R.camera);
+});
+document.addEventListener('visibilitychange', () => {
+  // ẩn tab → dừng camera để tiết kiệm pin, quay lại thì bật lại
+  if (!running || xr.session) return;
+  if (document.hidden) {
+    floorVision.reset();
+    feed.stop();
+  } else if (hasCamera) {
+    feed.start().catch(() => undefined);
+  }
+});
+
+// cho kiểm thử tự động / gỡ lỗi
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision };

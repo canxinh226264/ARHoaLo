@@ -1,0 +1,802 @@
+{
+ "_doc": "Toạ độ mét. Gốc O = mặt sàn, giữa lối vào cổng G1. +X dọc hành lang vào trong, +Y lên, +Z bên phải khi đi vào (tường cam). Mục có [CẦN ĐO] cần đo tại hiện trường rồi sửa ở đây, không cần sửa code.",
+ "version": 1,
+ "corridor": {
+  "length": 26,
+  "width": 2.5,
+  "wallHeight": 2.77,
+  "stoneWallHeight": 2.4,
+  "ceiling": null,
+  "gateOpeningWidth": 0.9,
+  "_measure": [
+   "width [CẦN ĐO]",
+   "wallHeight [CẦN ĐO]",
+   "stoneWallHeight [CẦN ĐO]",
+   "ceiling: null = hở/không trần [CẦN ĐO]",
+   "gateOpeningWidth [CẦN ĐO]",
+   "panel y0 (độ cao mép dưới) [CẦN ĐO]"
+  ]
+ },
+ "user": {
+  "eyeHeightMin": 1.2,
+  "eyeHeightMax": 1.8,
+  "eyeHeightDefault": 1.45,
+  "strideMeters": 0.62
+ },
+ "camera": {
+  "_doc": "FOV của camera sau theo cạnh dài khung hình. iPhone 12 ~ 67°, Android tầm trung 65–70°.",
+  "longEdgeFovDeg": 67
+ },
+ "panels": [
+  {
+   "id": "F",
+   "side": "orange",
+   "x0": 0,
+   "x1": 2,
+   "width": 2,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Lời giới thiệu"
+  },
+  {
+   "id": "A1",
+   "side": "orange",
+   "x0": 2,
+   "x1": 4.5,
+   "width": 2.5,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Phần A (chia 4 đoạn làm mốc)"
+  },
+  {
+   "id": "A2",
+   "side": "orange",
+   "x0": 4.5,
+   "x1": 7.0,
+   "width": 2.5,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Phần A (chia 4 đoạn làm mốc)"
+  },
+  {
+   "id": "A3",
+   "side": "orange",
+   "x0": 7,
+   "x1": 9.5,
+   "width": 2.5,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Phần A (chia 4 đoạn làm mốc)"
+  },
+  {
+   "id": "A4",
+   "side": "orange",
+   "x0": 9.5,
+   "x1": 12.0,
+   "width": 2.5,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Phần A (chia 4 đoạn làm mốc)"
+  },
+  {
+   "id": "C1",
+   "side": "orange",
+   "x0": 12,
+   "x1": 13,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2,
+   "note": "nền xanh đặc – không làm mốc"
+  },
+  {
+   "id": "C2",
+   "side": "orange",
+   "x0": 13,
+   "x1": 14,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "C3",
+   "side": "orange",
+   "x0": 14,
+   "x1": 15,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "C4",
+   "side": "orange",
+   "x0": 15,
+   "x1": 16,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true
+  },
+  {
+   "id": "C5",
+   "side": "orange",
+   "x0": 16,
+   "x1": 17,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "C6",
+   "side": "orange",
+   "x0": 17,
+   "x1": 18,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "C7",
+   "side": "orange",
+   "x0": 18,
+   "x1": 19,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "C8",
+   "side": "orange",
+   "x0": 19,
+   "x1": 20,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true
+  },
+  {
+   "id": "C9",
+   "side": "orange",
+   "x0": 20,
+   "x1": 21,
+   "width": 1,
+   "height": 2.4,
+   "y0": 0.2
+  },
+  {
+   "id": "D11",
+   "side": "orange",
+   "x0": 21,
+   "x1": 26,
+   "width": 5,
+   "height": 2.4,
+   "y0": 0.2,
+   "landmark": true,
+   "note": "Khu tương tác, bảng Tết Nguyên Đán 1953"
+  },
+  {
+   "id": "B1",
+   "side": "stone",
+   "x0": 0,
+   "x1": 0.85,
+   "width": 0.85,
+   "height": 2.4,
+   "y0": 0.3
+  },
+  {
+   "id": "B2",
+   "side": "stone",
+   "x0": 0.85,
+   "x1": 3.85,
+   "width": 3,
+   "height": 2.4,
+   "y0": 0.3,
+   "landmark": true
+  },
+  {
+   "id": "B3",
+   "side": "stone",
+   "x0": 3.85,
+   "x1": 4.7,
+   "width": 0.85,
+   "height": 1.8,
+   "y0": 0.3
+  },
+  {
+   "id": "B4",
+   "side": "stone",
+   "x0": 4.7,
+   "x1": 5.2,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B5",
+   "side": "stone",
+   "x0": 5.2,
+   "x1": 6.2,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B6",
+   "side": "stone",
+   "x0": 6.2,
+   "x1": 7.2,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  },
+  {
+   "id": "B7",
+   "side": "stone",
+   "x0": 7.2,
+   "x1": 7.7,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B8",
+   "side": "stone",
+   "x0": 7.7,
+   "x1": 8.7,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B9",
+   "side": "stone",
+   "x0": 8.7,
+   "x1": 9.7,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  },
+  {
+   "id": "B10",
+   "side": "stone",
+   "x0": 9.7,
+   "x1": 10.2,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B11",
+   "side": "stone",
+   "x0": 10.2,
+   "x1": 11.2,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B12",
+   "side": "stone",
+   "x0": 11.2,
+   "x1": 11.7,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B13",
+   "side": "stone",
+   "x0": 11.7,
+   "x1": 12.7,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B14",
+   "side": "stone",
+   "x0": 12.7,
+   "x1": 13.7,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  },
+  {
+   "id": "B15",
+   "side": "stone",
+   "x0": 13.7,
+   "x1": 14.7,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B16",
+   "side": "stone",
+   "x0": 14.7,
+   "x1": 15.7,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  },
+  {
+   "id": "B17",
+   "side": "stone",
+   "x0": 15.7,
+   "x1": 16.2,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B18",
+   "side": "stone",
+   "x0": 16.2,
+   "x1": 17.2,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B19",
+   "side": "stone",
+   "x0": 17.2,
+   "x1": 17.7,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B20",
+   "side": "stone",
+   "x0": 17.7,
+   "x1": 18.7,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B21",
+   "side": "stone",
+   "x0": 18.7,
+   "x1": 19.7,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  },
+  {
+   "id": "B22",
+   "side": "stone",
+   "x0": 19.7,
+   "x1": 20.2,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B23",
+   "side": "stone",
+   "x0": 20.2,
+   "x1": 21.2,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B24",
+   "side": "stone",
+   "x0": 21.2,
+   "x1": 21.7,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B25",
+   "side": "stone",
+   "x0": 21.7,
+   "x1": 22.7,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B26",
+   "side": "stone",
+   "x0": 22.7,
+   "x1": 23.2,
+   "width": 0.5,
+   "height": 1.2,
+   "y0": 1.0,
+   "note": "tab năm – không làm mốc"
+  },
+  {
+   "id": "B27",
+   "side": "stone",
+   "x0": 23.2,
+   "x1": 24.2,
+   "width": 1,
+   "height": 2,
+   "y0": 0.3
+  },
+  {
+   "id": "B28",
+   "side": "stone",
+   "x0": 24.2,
+   "x1": 25.2,
+   "width": 1,
+   "height": 1.6,
+   "y0": 0.3
+  }
+ ],
+ "colliders": [
+  {
+   "id": "floor",
+   "type": "plane",
+   "axis": "y",
+   "value": 0,
+   "restSurface": true
+  },
+  {
+   "id": "wall-orange",
+   "type": "plane",
+   "axis": "z",
+   "value": 1.25,
+   "normal": -1
+  },
+  {
+   "id": "wall-stone",
+   "type": "plane",
+   "axis": "z",
+   "value": -1.25,
+   "normal": 1
+  },
+  {
+   "id": "gable-entry",
+   "type": "plane",
+   "axis": "x",
+   "value": 0,
+   "normal": 1
+  },
+  {
+   "id": "gable-end",
+   "type": "plane",
+   "axis": "x",
+   "value": 26,
+   "normal": -1
+  },
+  {
+   "id": "table-D14",
+   "type": "aabb",
+   "min": [
+    22,
+    0,
+    0.55
+   ],
+   "max": [
+    25,
+    1.0,
+    1.25
+   ],
+   "restSurface": true,
+   "note": "Bàn D14 3 x 0,7 x cao 1,0 m"
+  },
+  {
+   "id": "real-peach-tree",
+   "type": "cylinder",
+   "center": [
+    23.5,
+    0,
+    0.9
+   ],
+   "radius": 1.3,
+   "yMin": 1.0,
+   "yMax": 4.0,
+   "soft": true,
+   "note": "Cây đào thật cao 3 m trên bàn – vùng hoa ảo mờ đi [vị trí x CẦN ĐO, hồ sơ ghi ≈24]"
+  }
+ ],
+ "exclusionZones": [],
+ "branchAnchors": [
+  {
+   "id": "canopy-1",
+   "x": -2.8,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 173
+  },
+  {
+   "id": "canopy-2",
+   "x": -1.95,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 210
+  },
+  {
+   "id": "canopy-3",
+   "x": -1.1,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 247
+  },
+  {
+   "id": "canopy-4",
+   "x": -0.25,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 284
+  },
+  {
+   "id": "canopy-5",
+   "x": 0.6,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 321
+  },
+  {
+   "id": "canopy-6",
+   "x": 1.45,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 358
+  },
+  {
+   "id": "canopy-7",
+   "x": 2.3,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 395
+  },
+  {
+   "id": "canopy-8",
+   "x": 3.15,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 432
+  },
+  {
+   "id": "canopy-9",
+   "x": 4.0,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 469
+  },
+  {
+   "id": "canopy-10",
+   "x": 4.85,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 506
+  },
+  {
+   "id": "canopy-11",
+   "x": 5.7,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 543
+  },
+  {
+   "id": "canopy-12",
+   "x": 6.55,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 580
+  },
+  {
+   "id": "canopy-13",
+   "x": 7.4,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 617
+  },
+  {
+   "id": "canopy-14",
+   "x": 8.25,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 654
+  },
+  {
+   "id": "canopy-15",
+   "x": 9.1,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 691
+  },
+  {
+   "id": "canopy-16",
+   "x": 9.95,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 728
+  },
+  {
+   "id": "canopy-17",
+   "x": 10.8,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 765
+  },
+  {
+   "id": "canopy-18",
+   "x": 11.65,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 802
+  },
+  {
+   "id": "canopy-19",
+   "x": 12.5,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 839
+  },
+  {
+   "id": "canopy-20",
+   "x": 13.35,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 876
+  },
+  {
+   "id": "canopy-21",
+   "x": 14.2,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 913
+  },
+  {
+   "id": "canopy-22",
+   "x": 15.05,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 950
+  },
+  {
+   "id": "canopy-23",
+   "x": 15.9,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 987
+  },
+  {
+   "id": "canopy-24",
+   "x": 16.75,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1024
+  },
+  {
+   "id": "canopy-25",
+   "x": 17.6,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1061
+  },
+  {
+   "id": "canopy-26",
+   "x": 18.45,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1098
+  },
+  {
+   "id": "canopy-27",
+   "x": 19.3,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1135
+  },
+  {
+   "id": "canopy-28",
+   "x": 20.15,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1172
+  },
+  {
+   "id": "canopy-29",
+   "x": 21.0,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1209
+  },
+  {
+   "id": "canopy-30",
+   "x": 21.85,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1246
+  },
+  {
+   "id": "canopy-31",
+   "x": 22.7,
+   "y": 2.78,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1283
+  },
+  {
+   "id": "canopy-32",
+   "x": 23.55,
+   "y": 2.815,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1320
+  },
+  {
+   "id": "canopy-33",
+   "x": 24.4,
+   "y": 2.8499999999999996,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1357
+  },
+  {
+   "id": "canopy-34",
+   "x": 25.25,
+   "y": 2.78,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1394
+  },
+  {
+   "id": "canopy-35",
+   "x": 26.1,
+   "y": 2.815,
+   "z": 1.25,
+   "reach": 2.75,
+   "seed": 1431
+  },
+  {
+   "id": "canopy-36",
+   "x": 26.95,
+   "y": 2.8499999999999996,
+   "z": -1.25,
+   "reach": 2.75,
+   "seed": 1468
+  }
+ ]
+}

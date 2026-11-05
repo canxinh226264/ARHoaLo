@@ -1,0 +1,29 @@
+{
+  "name": "don-gio-xuan-ar",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "prebuild": "node tools/sync-public.mjs",
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "build:site": "npm run build && node tools/update-dist.mjs",
+    "test": "node tools/check-ar.mjs",
+    "preview": "vite preview --host",
+    "markers": "node tools/compile-markers.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource/eb-garamond": "^5.3.0",
+    "@mediapipe/tasks-vision": "^0.10.18",
+    "three": "^0.169.0",
+    "@types/three": "^0.169.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  }
+}

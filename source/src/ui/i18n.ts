@@ -1,0 +1,199 @@
+export type Lang = 'vi' | 'en';
+
+const dict = {
+  vi: {
+    exhibitionLine: 'Trưng bày chuyên đề tại Di tích Nhà tù Hỏa Lò',
+    occasion: 'Nhân kỷ niệm 97 năm ngày thành lập Đảng và chào xuân Đinh Mùi 2027',
+    start: 'Bắt đầu trải nghiệm',
+    offlineReady: 'Đã tải xong, dùng được cả khi mất mạng',
+    offlineLoading: 'Đang tải trước để dùng offline',
+    permTitle: 'Trước khi bắt đầu',
+    permCamera: 'Camera',
+    permCameraBody: 'Để vẽ hoa đào lên khung cảnh trước mặt. Hình ảnh chỉ xử lý trên điện thoại, không gửi đi đâu.',
+    permMotion: 'Cảm biến chuyển động',
+    permMotionBody: 'Để hoa đứng yên trong không gian khi bạn xoay điện thoại.',
+    whereTitle: 'Bạn đang ở đâu?',
+    whereIn: 'Trong hành lang trưng bày',
+    whereOut: 'Ngoài cổng, cần chỉ đường',
+    xrOption: 'Dùng AR nâng cao của Android (hoa bám sàn chính xác hơn, tạm tắt nhận diện tay)',
+    allow: 'Cho phép và bắt đầu',
+    back: 'Quay lại',
+    ob1: 'Khum tay lại để hứng một cánh hoa. Xoè tay ra để thả.',
+    ob2: 'Ngẩng điện thoại lên để thấy cành đào đang rụng hoa.',
+    ob3: 'Hướng xuống sàn hoặc mặt bàn rồi đưa tay gạt lớp hoa.',
+    next: 'Tiếp',
+    done: 'Bắt đầu',
+    skip: 'Bỏ qua',
+    safety: 'Hãy chú ý xung quanh khi nhìn màn hình.',
+    handSeen: 'Đã thấy tay',
+    handHolding: 'Đang giữ hoa',
+    handLoading: 'Đang chuẩn bị nhận diện tay',
+    modeIndoor: 'Trong hành lang',
+    modeOutdoor: 'Ngoài cổng',
+    reading: 'Chế độ đọc',
+    readingOn: 'Đã bật chế độ đọc: ít hoa ở giữa màn hình',
+    readingOff: 'Đã tắt chế độ đọc',
+    menu: 'Tuỳ chọn',
+    capture: 'Chụp ảnh',
+    sound: 'Âm thanh',
+    battery: 'Tiết kiệm pin',
+    reduceMotion: 'Giảm chuyển động',
+    density: 'Mật độ hoa',
+    guide: 'Hiện khung hành lang (kiểm tra vị trí)',
+    recenter: 'Căn lại hướng',
+    recenterHint: 'Quay mặt vào trong hành lang, hướng về khu cây đào, rồi bấm.',
+    recentered: 'Đã căn lại hướng',
+    standAt: 'Tôi đang đứng trước…',
+    standAtHint: 'Hướng camera thẳng vào panel đó rồi chọn tên panel.',
+    fixed: 'Đã căn vị trí theo panel',
+    tutorial: 'Xem lại hướng dẫn',
+    language: 'English',
+    close: 'Đóng',
+    savePhoto: 'Lưu ảnh',
+    sharePhoto: 'Chia sẻ',
+    photoReady: 'Ảnh của bạn',
+    outdoorFollow: 'Đi theo dải sáng trên sàn',
+    outdoorLeft: (m: number) => `Còn khoảng ${m} m tới cổng triển lãm`,
+    turnLeft: 'Xoay sang trái để thấy dải sáng',
+    turnRight: 'Xoay sang phải để thấy dải sáng',
+    turnBack: 'Quay người lại, dải sáng ở phía sau',
+    outdoorAlign: 'Căn tại pano P',
+    outdoorAlignHint: 'Đứng trước pano "Đón Gió Xuân" ở cổng di tích, hướng camera vào pano rồi bấm.',
+    outdoorAligned: 'Đã căn theo pano P',
+    arrived: 'Tôi đã vào triển lãm',
+    arrivedNear: 'Bạn đã tới cổng. Vào trong để xem hoa rơi.',
+    lost: 'Hướng camera về bảng triển lãm để định vị lại',
+    errDenied: 'Chưa có quyền dùng camera. Mở cài đặt trình duyệt, cho phép camera cho trang này rồi tải lại.',
+    errInsecure: 'Trang cần mở qua https:// để dùng camera. Hãy quét lại mã QR tại pano.',
+    errNoCam: 'Không tìm thấy camera. Bạn vẫn xem được hoa: kéo màn hình để nhìn quanh.',
+    errNoSensor: 'Điện thoại không gửi dữ liệu cảm biến. Kéo màn hình để nhìn quanh.',
+    errSensorDenied: 'Chưa có quyền cảm biến chuyển động. Kéo màn hình để nhìn quanh, hoặc tải lại trang và chọn Cho phép.',
+    errLowLight: 'Chỗ này hơi tối nên nhận diện tay có thể chậm. Đưa tay gần nguồn sáng hơn.',
+    errHand: 'Không tải được nhận diện tay. Hoa vẫn rơi bình thường.',
+    help: 'Trợ giúp',
+    helpBody:
+      'Khum tay để hứng hoa, xoè tay để thả. Ngẩng lên để xem cành đào, cúi xuống để gạt hoa trên sàn. Nếu hoa lệch vị trí, chọn "Tôi đang đứng trước…" và chọn panel trước mặt.',
+    privacy: 'Video chỉ xử lý trên điện thoại của bạn và không được tải lên máy chủ.',
+    xrPlace: 'Đứng ở lối vào cổng G1, hướng camera xuống sàn rồi chạm vào vòng tròn',
+    xrPlaced: 'Đã đặt hành lang',
+    xrScan: 'Đang tìm mặt sàn: hướng camera xuống sàn và lia chậm sang hai bên',
+    xrNotFloor: 'Đây có vẻ là mặt bàn hoặc đồ vật, không phải sàn. Hãy hướng camera xuống sàn.',
+    xrFloorFixed: 'Đã nhận ra mặt sàn thật và đặt lại hoa',
+    xrReplace: 'Đặt lại mặt sàn',
+    floorScan: 'Hướng camera xuống vùng sàn trống gần chân, giữ yên khoảng 1 giây rồi lia chậm. Hoa chỉ đọng khi nhận được vùng sàn.',
+    exitXr: 'Thoát AR nâng cao',
+  },
+  en: {
+    exhibitionLine: 'A thematic exhibition at the Hỏa Lò Prison Relic',
+    occasion: '97th anniversary of the founding of the Communist Party of Vietnam, welcoming the Spring of 2027',
+    start: 'Begin the experience',
+    offlineReady: 'Downloaded. Works without a connection',
+    offlineLoading: 'Downloading for offline use',
+    permTitle: 'Before you begin',
+    permCamera: 'Camera',
+    permCameraBody: 'To draw peach blossoms over the scene in front of you. Video stays on your phone and is never uploaded.',
+    permMotion: 'Motion sensors',
+    permMotionBody: 'So the blossoms stay put in the room as you turn your phone.',
+    whereTitle: 'Where are you?',
+    whereIn: 'Inside the exhibition corridor',
+    whereOut: 'Outside the gate, show me the way',
+    xrOption: 'Use Android enhanced AR (blossoms sit on the floor more accurately; hand tracking paused)',
+    allow: 'Allow and begin',
+    back: 'Back',
+    ob1: 'Cup your hand to catch a petal. Open it to let go.',
+    ob2: 'Tilt your phone up to see blossoming peach branches.',
+    ob3: 'Point at the floor or the table and sweep the petals with your hand.',
+    next: 'Next',
+    done: 'Begin',
+    skip: 'Skip',
+    safety: 'Mind your surroundings while looking at the screen.',
+    handSeen: 'Hand found',
+    handHolding: 'Holding petals',
+    handLoading: 'Preparing hand tracking',
+    modeIndoor: 'In the corridor',
+    modeOutdoor: 'Outside',
+    reading: 'Reading mode',
+    readingOn: 'Reading mode on: fewer petals in the middle of the screen',
+    readingOff: 'Reading mode off',
+    menu: 'Options',
+    capture: 'Take photo',
+    sound: 'Sound',
+    battery: 'Battery saver',
+    reduceMotion: 'Reduce motion',
+    density: 'Petal density',
+    guide: 'Show corridor outline (check alignment)',
+    recenter: 'Reset direction',
+    recenterHint: 'Face into the corridor, toward the peach tree, then tap.',
+    recentered: 'Direction reset',
+    standAt: 'I am standing at…',
+    standAtHint: 'Point the camera straight at that panel, then choose its name.',
+    fixed: 'Position set from panel',
+    tutorial: 'Show the guide again',
+    language: 'Tiếng Việt',
+    close: 'Close',
+    savePhoto: 'Save photo',
+    sharePhoto: 'Share',
+    photoReady: 'Your photo',
+    outdoorFollow: 'Follow the light on the ground',
+    outdoorLeft: (m: number) => `About ${m} m to the exhibition gate`,
+    turnLeft: 'Turn left to see the light',
+    turnRight: 'Turn right to see the light',
+    turnBack: 'Turn around, the light is behind you',
+    outdoorAlign: 'Align at panel P',
+    outdoorAlignHint: 'Stand in front of the “Đón Gió Xuân” panel at the relic gate, point the camera at it, then tap.',
+    outdoorAligned: 'Aligned to panel P',
+    arrived: 'I am inside the exhibition',
+    arrivedNear: 'You have reached the gate. Step inside to see the falling blossoms.',
+    lost: 'Point the camera at an exhibition panel to re-align',
+    errDenied: 'Camera access is off. Allow the camera for this site in your browser settings, then reload.',
+    errInsecure: 'This page needs https:// to use the camera. Scan the QR code on the panel again.',
+    errNoCam: 'No camera found. You can still see the blossoms: drag the screen to look around.',
+    errNoSensor: 'Your phone is not sending motion data. Drag the screen to look around.',
+    errSensorDenied: 'Motion access is off. Drag the screen to look around, or reload and choose Allow.',
+    errLowLight: 'It is a little dark here, so hand tracking may lag. Move your hand closer to the light.',
+    errHand: 'Hand tracking could not load. Blossoms still fall as usual.',
+    help: 'Help',
+    helpBody:
+      'Cup your hand to catch petals, open it to let go. Look up for the branches, look down to sweep the floor. If the blossoms drift, choose “I am standing at…” and pick the panel in front of you.',
+    privacy: 'Video is processed only on your phone and is never uploaded to a server.',
+    xrPlace: 'Stand at the G1 gate entrance, point the camera at the floor, then tap the ring',
+    xrPlaced: 'Corridor placed',
+    xrScan: 'Looking for the floor: point the camera at the floor and pan slowly from side to side',
+    xrNotFloor: 'This looks like a table or an object, not the floor. Point the camera at the floor.',
+    xrFloorFixed: 'Found the real floor and reset the blossoms',
+    xrReplace: 'Reset the floor',
+    floorScan: 'Point at clear floor near your feet, hold for about a second, then pan slowly. Petals settle only after the floor region is found.',
+    exitXr: 'Leave enhanced AR',
+  },
+};
+
+type Dict = typeof dict.vi;
+let lang: Lang = ((): Lang => {
+  try {
+    const s = localStorage.getItem('dgx-lang');
+    if (s === 'vi' || s === 'en') return s;
+  } catch { /* bỏ qua */ }
+  return navigator.language?.toLowerCase().startsWith('vi') ? 'vi' : 'vi';
+})();
+
+const listeners = new Set<() => void>();
+
+export function t<K extends keyof Dict>(k: K): Dict[K] {
+  return dict[lang][k] as Dict[K];
+}
+/** Dòng tiếng Anh in nghiêng đi kèm (giống panel: "Tết Nguyên đán / Lunar New Year"). */
+export function other<K extends keyof Dict>(k: K): Dict[K] {
+  return dict[lang === 'vi' ? 'en' : 'vi'][k] as Dict[K];
+}
+export function getLang() {
+  return lang;
+}
+export function setLang(l: Lang) {
+  lang = l;
+  try { localStorage.setItem('dgx-lang', l); } catch { /* bỏ qua */ }
+  document.documentElement.lang = l;
+  listeners.forEach((f) => f());
+}
+export function onLang(f: () => void) {
+  listeners.add(f);
+}

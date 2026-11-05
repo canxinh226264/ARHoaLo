@@ -1,0 +1,79 @@
+{
+ "_doc": "Danh sách mốc ảnh (image target). Chỉ dùng panel nhiều chi tiết. Ảnh nguồn đặt trong /markers-src (file in chính thức của BTC). Chạy 'npm run markers' để biên dịch thành public/markers/targets.mind (xem README).",
+ "outdoor": [
+  {
+   "id": "P",
+   "physicalWidth": 2.5,
+   "src": "markers-src/P.jpg"
+  },
+  {
+   "id": "G2",
+   "physicalWidth": 0.88,
+   "src": "markers-src/G2.jpg"
+  },
+  {
+   "id": "G1",
+   "physicalWidth": 1.84,
+   "src": "markers-src/G1.jpg"
+  }
+ ],
+ "indoor": [
+  {
+   "id": "F",
+   "physicalWidth": 2,
+   "src": "markers-src/F.jpg"
+  },
+  {
+   "id": "A1",
+   "physicalWidth": 2.5,
+   "src": "markers-src/A1.jpg"
+  },
+  {
+   "id": "A2",
+   "physicalWidth": 2.5,
+   "src": "markers-src/A2.jpg"
+  },
+  {
+   "id": "A3",
+   "physicalWidth": 2.5,
+   "src": "markers-src/A3.jpg"
+  },
+  {
+   "id": "A4",
+   "physicalWidth": 2.5,
+   "src": "markers-src/A4.jpg"
+  },
+  {
+   "id": "C4",
+   "physicalWidth": 1,
+   "src": "markers-src/C4.jpg"
+  },
+  {
+   "id": "C8",
+   "physicalWidth": 1,
+   "src": "markers-src/C8.jpg"
+  },
+  {
+   "id": "D11",
+   "physicalWidth": 5,
+   "src": "markers-src/D11.jpg"
+  },
+  {
+   "id": "B2",
+   "physicalWidth": 3,
+   "src": "markers-src/B2.jpg"
+  }
+ ],
+ "excluded": [
+  "C1",
+  "B4",
+  "B7",
+  "B10",
+  "B12",
+  "B17",
+  "B19",
+  "B22",
+  "B24",
+  "B26"
+ ]
+}

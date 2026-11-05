@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#F5A93A" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="description" content="Trải nghiệm AR hoa đào tại trưng bày chuyên đề Đón Gió Xuân, Di tích Nhà tù Hỏa Lò." />
+    <title>Đón Gió Xuân · AR</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23F5A93A'/%3E%3Cg transform='translate(16 16)' fill='%23FCFAF0' stroke='%2300539B' stroke-width='1.4'%3E%3Cpath d='M0-2C-4-5-4-11-1.6-12.6L0-11.2 1.6-12.6C4-11 4-5 0-2z'/%3E%3Cpath transform='rotate(72)' d='M0-2C-4-5-4-11-1.6-12.6L0-11.2 1.6-12.6C4-11 4-5 0-2z'/%3E%3Cpath transform='rotate(144)' d='M0-2C-4-5-4-11-1.6-12.6L0-11.2 1.6-12.6C4-11 4-5 0-2z'/%3E%3Cpath transform='rotate(216)' d='M0-2C-4-5-4-11-1.6-12.6L0-11.2 1.6-12.6C4-11 4-5 0-2z'/%3E%3Cpath transform='rotate(288)' d='M0-2C-4-5-4-11-1.6-12.6L0-11.2 1.6-12.6C4-11 4-5 0-2z'/%3E%3C/g%3E%3C/svg%3E" />
+    <link rel="preload" href="./brand/title.webp" as="image" />
+    <link rel="preload" href="./brand/blossom.webp" as="image" />
+  </head>
+  <body>
+    <video id="cam" playsinline muted autoplay aria-hidden="true"></video>
+    <canvas id="gl" aria-label="Hoa đào AR"></canvas>
+    <canvas id="fx" aria-hidden="true"></canvas>
+    <div id="ui"></div>
+    <noscript>Trải nghiệm cần bật JavaScript.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
