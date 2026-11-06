@@ -2,7 +2,7 @@ import { t, other, getLang, setLang, onLang } from './i18n';
 import { icons } from './icons';
 import { el, sheet } from './screens';
 import { landmarkPanels } from '../config/room';
-import type { GuidePhase, GuideSetup } from '../scenes/guide-scene';
+import { DESTINATION, type GuidePhase, type GuideSetup } from '../scenes/guide-scene';
 
 export interface Settings {
   mode: 'indoor' | 'outdoor' | 'guide';
@@ -49,7 +49,7 @@ const PANEL_LABEL: Record<string, string> = {
   D11: 'Bàn quà, cây đào',
 };
 
-type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number };
+type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number; remaining: number; accuracy: number };
 
 export class Hud {
   readonly el: HTMLElement;
@@ -164,58 +164,76 @@ export class Hud {
     span.textContent = st === 'hold' ? t('handHolding') : st === 'loading' ? t('handLoading') : st === 'seen' ? t('handSeen') : '';
   }
 
-  /** Trạng thái dải sáng thử nghiệm, chỉ vẽ lại khi có thay đổi. */
+  /** Trạng thái dẫn đường; chỉ vẽ lại khi chữ hoặc nút thay đổi. */
   setGuide(g: GuideState) {
-    const p = this.guide;
-    this.guide = { phase: g.phase, blocked: g.blocked, floorNow: g.floorNow, floorTo: g.floorTo };
-    if (this.s.mode === 'guide' && (p.phase !== g.phase || p.blocked !== g.blocked || p.floorNow !== g.floorNow || p.floorTo !== g.floorTo)) this.refreshWay();
+    this.guide = { ...g };
+    if (this.s.mode !== 'guide') return;
+    const key = this.guideKey();
+    if (key !== this.guideShown) this.refreshWay();
   }
-  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1 };
+  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN };
+  private guideShown = '';
 
+  private guideKey() {
+    const g = this.guide;
+    return `${getLang()}|${g.phase}|${this.guideText()}`;
+  }
+
+  private guideText() {
+    const g = this.guide;
+    const vi = getLang() === 'vi';
+    const name = vi ? DESTINATION.shortVi : DESTINATION.shortEn;
+    const gps = Number.isFinite(g.accuracy) && g.accuracy > 20 ? ` · ${t('guideGps')(Math.round(g.accuracy))}` : '';
+    if (g.phase === 'locating') return t('guideLocating') + (Number.isFinite(g.accuracy) ? ` · ${t('guideGps')(Math.round(g.accuracy))}` : '');
+    if (g.phase === 'floor') return g.floorTo < g.floorNow ? t('guideGoDown')(g.floorTo) : t('guideGoUp')(g.floorTo);
+    if (g.phase === 'arrived') return t('guideArrived')(name);
+    if (g.blocked) return t('guideBlocked');
+    const m = g.remaining;
+    // làm tròn thô để chữ không nhảy liên tục
+    const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', vi ? ',' : '.')} km` : `${m >= 100 ? Math.round(m / 10) * 10 : Math.round(m)} m`;
+    return t('guideLeft')(name, dist) + gps;
+  }
+
+  /** Khung dẫn đường gọn một dòng: chữ ngắn + nút nhỏ, không che phần lớn màn hình. */
   private refreshGuide() {
     const g = this.guide;
     this.way.hidden = g.phase === 'idle';
-    let body = '';
-    let main = `<button class="btn btn--ghost" type="button" data-gchange>${t('guideChange')}</button>`;
-    if (g.phase === 'floor') {
-      body = `<strong>${g.floorTo < g.floorNow ? t('guideGoDown')(g.floorNow, g.floorTo) : t('guideGoUp')(g.floorNow, g.floorTo)}</strong><span>${t('guideStairs')}</span>`;
-      main = `<button class="btn" type="button" data-gfloor>${t('guideFloorDone')(g.floorTo)}</button>`;
-    } else if (g.phase === 'arrived') {
-      body = `<strong>${t('guideArrived')}</strong>`;
-    } else {
-      const hint = g.blocked ? t('guideBlocked') : this.turn ? `<b style="font-weight:600">${t(this.turn)}</b>` : t('guideLeft')(this.remaining);
-      body = `<strong>${t('guideFollow')}</strong><span class="en">${other('guideFollow')}</span><span>${hint}</span>`;
-    }
-    this.way.innerHTML = `${body}<div class="row">${main}<button class="btn btn--ghost" type="button" data-gexit>${t('guideExit')}</button></div>`;
+    this.guideShown = this.guideKey();
+    const action = g.phase === 'floor'
+      ? `<button class="btn" type="button" data-gfloor>${t('guideFloorDone')(g.floorTo)}</button>`
+      : `<button class="btn btn--ghost" type="button" data-gchange>${t('guideChange')}</button>`;
+    this.way.innerHTML = `
+      <span class="wayfind__text" aria-live="polite">${this.guideText()}</span>
+      ${action}
+      <button class="wayfind__x" type="button" data-gexit aria-label="${t('guideExit')}" title="${t('guideExit')}">×</button>`;
     this.way.querySelector('[data-gchange]')?.addEventListener('click', () => this.h.guideOpen?.());
     this.way.querySelector('[data-gfloor]')?.addEventListener('click', () => this.h.guideFloorDone?.());
     this.way.querySelector('[data-gexit]')?.addEventListener('click', () => this.h.guideExit?.());
   }
 
-  /** Biểu mẫu đặt điểm đến. */
+  /** Biểu mẫu bắt đầu dẫn đường tới điểm đến cố định. */
   openGuideSetup(d: GuideSetup, onGo: (s: GuideSetup) => void) {
-    const num = (label: string, key: string, val: number, min: number, max: number, step: number) =>
-      `<label class="opt"><span>${label}</span><input type="number" inputmode="decimal" data-g="${key}" value="${val}" min="${min}" max="${max}" step="${step}" style="width:5.5em;font:inherit;padding:6px 8px;text-align:right"/></label>`;
+    const num = (label: string, key: string, val: number) =>
+      `<label class="opt"><span>${label}</span><input type="number" inputmode="numeric" data-g="${key}" value="${val}" min="-5" max="100" step="1" style="width:5.5em;font:inherit;padding:6px 8px;text-align:right"/></label>`;
+    const vi = getLang() === 'vi';
     sheet(
       this.root,
-      `<h2>${t('guideTitle')}</h2><p class="en">${other('guideTitle')}</p><p>${t('guideHint')}</p>
-       ${num(t('guideAhead'), 'ahead', d.ahead, 0, 100, 0.5)}
-       ${num(t('guideRight'), 'right', d.right, -100, 100, 0.5)}
-       ${num(t('guideFloorNow'), 'floorNow', d.floorNow, -5, 100, 1)}
-       ${num(t('guideFloorTo'), 'floorTo', d.floorTo, -5, 100, 1)}
+      `<h2>${t('guideTitle')}</h2><p class="en">${other('guideTitle')}</p>
+       <p>${vi ? DESTINATION.nameVi : DESTINATION.nameEn}</p><p class="fine">${t('guideHint')}</p>
+       ${num(t('guideFloorNow'), 'floorNow', d.floorNow)}
+       ${num(t('guideFloorTo'), 'floorTo', d.floorTo)}
        <p class="fine" data-gerr hidden>${t('guideBadInput')}</p>
        <div class="actions"><button class="btn" type="button" data-ok>${t('guideGo')}</button><button class="link" type="button" data-x>${t('close')}</button></div>`,
       (sh, close) => {
         const read = (k: string) => parseFloat(sh.querySelector<HTMLInputElement>(`[data-g="${k}"]`)!.value);
         sh.querySelector('[data-ok]')!.addEventListener('click', () => {
-          const s: GuideSetup = { ahead: read('ahead'), right: read('right'), floorNow: read('floorNow'), floorTo: read('floorTo') };
-          const ok = Object.values(s).every(Number.isFinite) && Number.isInteger(s.floorNow) && Number.isInteger(s.floorTo) && Math.hypot(s.ahead, s.right) <= 100;
-          if (!ok) {
+          const s: GuideSetup = { floorNow: read('floorNow'), floorTo: read('floorTo') };
+          if (!Number.isInteger(s.floorNow) || !Number.isInteger(s.floorTo)) {
             sh.querySelector<HTMLElement>('[data-gerr]')!.hidden = false;
             return;
           }
           close();
-          onGo(s);
+          onGo(s); // vẫn trong cú bấm: iOS cần vậy để hỏi quyền vị trí
         });
         sh.querySelector('[data-x]')!.addEventListener('click', close);
       },
@@ -223,6 +241,7 @@ export class Hud {
   }
 
   private refreshWay() {
+    this.way.classList.toggle('wayfind--compact', this.s.mode === 'guide');
     if (this.s.mode === 'guide') {
       this.refreshGuide();
       return;

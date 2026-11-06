@@ -1,54 +1,99 @@
 import * as THREE from 'three';
 import { GuidePlanner } from '../core/guide-planner';
+import { NorthEstimate, enuToWorld, groundAngle, worldToEnu, wrapAngle } from '../core/geo';
+import type { GeoFix } from '../core/geo-tracker';
 import { room } from '../config/room';
 import { theme } from '../config/theme';
+import destination from '../config/destination.json';
 
 /**
- * Dải sáng dẫn đường thử nghiệm: người dùng tự đặt điểm đến theo số mét trước mặt.
- *  - Vị trí ước lượng bằng bước chân, nên sai số tăng dần khi đi (không có GPS trong nhà).
- *  - Dải sáng đi thẳng về đích và lượn quanh vật cản thấy được trên camera.
- *  - Khác tầng: chỉ nhắc đi cầu thang. Web không đo được tầng và không biết cầu thang ở đâu,
- *    nên người dùng tự xác nhận khi đã tới tầng, rồi đặt lại điểm đến từ chỗ đang đứng.
+ * Dải sáng dẫn đường tới một điểm cố định (config/destination.json: cổng Parabol).
+ *  - Vị trí: GPS, giữa hai lần GPS thì cộng bước chân; trộn hai nguồn theo độ tin cậy.
+ *  - Hướng: la bàn cho biết hướng Bắc trong cảnh (cảm biến xoay của web không có hướng Bắc).
+ *  - Dải sáng đi thẳng về đích và lượn quanh vật cản thấy được trên camera. Đường nằm
+ *    sau lưng hay ngoài khung hình thì dải sáng bắt đầu ngay trước mặt rồi vòng ra phía đó.
+ *  - Khác tầng: chỉ nhắc đi cầu thang. Web không đo được tầng nên người dùng tự xác nhận.
+ * Không biết đường phố hay toà nhà: đi thẳng theo hướng chim bay.
  */
-export type GuidePhase = 'idle' | 'floor' | 'walk' | 'arrived';
+export type GuidePhase = 'idle' | 'locating' | 'floor' | 'walk' | 'arrived';
 
 export interface GuideSetup {
-  ahead: number;
-  right: number;
   floorNow: number;
   floorTo: number;
 }
 
-const POINTS = 48;
+export const DESTINATION = destination;
+
+const POINTS = 96;
 const RANGE = 12; // m, độ dài dải sáng hiển thị
 const START_GAP = 0.35; // m, không vẽ sát chân
 const WIDTH = 0.3; // m, nửa bề ngang gồm quầng sáng
-const ARRIVE_RADIUS = 0.8; // m
 const OBSERVE_EVERY = 0.1; // giây
 const PLAN_EVERY = 0.33; // giây
 const SMOOTH = 6; // 1/giây
-const LOOK_AHEAD = 1.2; // m
 const MIN_ON_FLOOR = 0.12;
 /** Mặt nạ sàn chỉ có giá trị ở gần; xa hơn thì vẽ mờ thay vì ẩn hẳn. */
 const MASK_RANGE = 4.5; // m
 const BEYOND_MASK = 0.35;
+/** Đường lệch khỏi hướng nhìn quá góc này thì vẽ đoạn vòng từ trước mặt (rad, ~29°). */
+const LEAD_MIN = 0.5;
+/** Đi gần như ngược hướng: giữ bên vòng cũ, tránh dải sáng lật trái/phải. */
+const LEAD_KEEP_SIDE = 2.6;
+/** Đoạn vòng: chạy thẳng từ gần chân ra trước mặt rồi mới bẻ cong, để thấy rõ trong khung hình dọc hẹp. */
+const LEAD_NEAR = 1.0; // m, điểm đầu (mép dưới khung hình)
+const LEAD_FROM = 2.4; // m, chỗ bắt đầu bẻ cong
+const LEAD_TO = 1.4; // m, bán kính cuối vòng
+const LEAD_TAIL = 6; // m, độ dài phần đường thật vẽ tiếp sau đoạn vòng
+/** Đoạn vòng là chỉ dẫn quay người nên luôn hiện rõ, kể cả khi đè lên chân người cầm máy. */
+const LEAD_MIN_ALPHA = 0.65;
+const LEAD_JOIN = 1.6; // m, đoạn vòng nối vào đường tại điểm cách người dùng chừng này
+const LEAD_STEPS = 18;
+const RESAMPLE_TURN = 0.15; // rad: xoay máy quá góc này thì vẽ lại đoạn vòng
+const STEP_VARIANCE = 0.15; // m² sai số thêm sau mỗi bước chân
+/** Sai số tăng theo thời gian kể cả khi không đếm được bước (đi chậm, bước nhỏ), để GPS mới luôn được tính. */
+const DRIFT_VARIANCE = 4; // m²/giây
+const COMPASS_FRESH = 1000; // ms
+const REMAP_NORTH = 0.25; // rad: hướng Bắc đổi quá mức này thì bỏ bản đồ vật cản cũ
 
 const _cam = new THREE.Vector3();
 const _ndc = new THREE.Vector3();
+const _f = new THREE.Vector3();
+
+/** Góc ngang camera; khi chúc thẳng xuống thì dùng hướng đỉnh màn hình. */
+function viewAngle(q: THREE.Quaternion) {
+  _f.set(0, 0, -1).applyQuaternion(q);
+  if (Math.hypot(_f.x, _f.z) > 0.3) return Math.atan2(_f.x, -_f.z);
+  _f.set(0, 1, 0).applyQuaternion(q);
+  return Math.atan2(_f.x, -_f.z);
+}
 
 export class GuideScene {
   readonly root = new THREE.Group();
   readonly planner = new GuidePlanner();
+  /** Vị trí người dùng trong cảnh (x, z). */
   readonly position = new THREE.Vector2();
+  /** Điểm đến trong cảnh (x, z). */
   readonly target = new THREE.Vector2();
+  readonly north = new NorthEstimate();
   phase: GuidePhase = 'idle';
   blocked = false;
   floorNow = 1;
   floorTo = 1;
-  /** Lần đặt gần nhất, để mở lại biểu mẫu với giá trị cũ. */
-  lastSetup: GuideSetup = { ahead: 5, right: 0, floorNow: 1, floorTo: 1 };
+  /** Sai số GPS gần nhất (m), NaN khi chưa có. */
+  accuracy = NaN;
+  hasFix = false;
+  lastSetup: GuideSetup = { floorNow: 1, floorTo: 1 };
   onArrive?: () => void;
 
+  private e = 0; // mét Đông/Bắc so với điểm đến
+  private n = 0;
+  private variance = 0;
+  private originE = 0; // gốc cảnh = chỗ có GPS đầu tiên, để toạ độ cảnh nhỏ
+  private originN = 0;
+  private mapNorth = NaN;
+  private leadSide = 0;
+  private leadLength = 0; // m đầu dải sáng là đoạn vòng
+  private resampledAngle = 0;
   private path: THREE.Vector2[] = [];
   private shown = new Float32Array(POINTS * 2);
   private wanted = new Float32Array(POINTS * 2);
@@ -124,7 +169,7 @@ export class GuideScene {
     this.marker = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }),
     );
-    this.marker.scale.set(0.5, 1, 1);
+    this.marker.scale.set(1.6, 3.2, 1);
     this.marker.material.opacity = 0.75;
     this.root.add(this.marker);
     this.setVisible(false);
@@ -134,75 +179,101 @@ export class GuideScene {
     this.root.visible = v;
   }
 
+  /** Khoảng cách tới điểm đến (m). */
   get remaining() {
-    return this.position.distanceTo(this.target);
+    return Math.hypot(this.e, this.n);
   }
 
-  /** Đặt điểm đến so với hướng đang nhìn. Khác tầng thì chờ người dùng đổi tầng trước. */
-  start(s: GuideSetup, cam: THREE.Camera) {
+  start(s: GuideSetup) {
     this.lastSetup = s;
     this.floorNow = s.floorNow;
     this.floorTo = s.floorTo;
-    this.position.set(0, 0);
-    this.planner.reset();
+    this.blocked = false;
     this.path = [];
     this.hasShown = false;
-    this.blocked = false;
-    if (s.floorNow !== s.floorTo) {
-      this.phase = 'floor';
-      return;
-    }
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-    const f = new THREE.Vector2(fwd.x, fwd.z);
-    if (f.lengthSq() < 0.01) f.set(1, 0);
-    f.normalize();
-    this.target.set(f.x * s.ahead - f.y * s.right, f.y * s.ahead + f.x * s.right);
-    this.phase = this.remaining <= ARRIVE_RADIUS ? 'arrived' : 'walk';
+    this.planner.reset();
+    this.mapNorth = NaN;
+    this.phase = s.floorNow !== s.floorTo ? 'floor' : this.hasFix && this.north.ready ? 'walk' : 'locating';
   }
 
   stop() {
     this.phase = 'idle';
+    this.hasFix = false;
+    this.accuracy = NaN;
+    this.north.reset();
   }
 
-  /** Một bước chân. Nhìn gần thẳng lên/xuống thì bỏ qua vì không rõ hướng đi. */
-  step(forward: THREE.Vector3) {
-    if (this.phase !== 'walk') return;
-    const f = new THREE.Vector2(forward.x, forward.z);
-    if (f.lengthSq() < 0.04) return;
-    f.normalize().multiplyScalar(room.user.strideMeters);
-    this.position.add(f);
-  }
-
-  /** Góc (độ, có dấu) từ hướng nhìn tới đoạn đường phía trước: + bên phải. */
-  turnHint(fwd: THREE.Vector3): number {
-    let to = this.target;
-    for (const p of this.path) {
-      if (p.distanceTo(this.position) >= LOOK_AHEAD) {
-        to = p;
-        break;
-      }
+  /** Một lần đo GPS (mét Đông/Bắc so với điểm đến). */
+  gpsFix(f: GeoFix) {
+    const r2 = f.accuracy * f.accuracy;
+    if (!this.hasFix) {
+      this.e = f.e;
+      this.n = f.n;
+      this.originE = f.e;
+      this.originN = f.n;
+      this.variance = r2;
+      this.hasFix = true;
+    } else {
+      // trộn kiểu Kalman: GPS kém thì tin bước chân hơn và ngược lại
+      const k = this.variance / (this.variance + r2);
+      this.e += (f.e - this.e) * k;
+      this.n += (f.n - this.n) * k;
+      this.variance *= 1 - k;
     }
-    const dx = to.x - this.position.x, dz = to.y - this.position.y;
-    if (dx * dx + dz * dz < 0.01 || fwd.x * fwd.x + fwd.z * fwd.z < 0.01) return 0;
-    return (Math.atan2(fwd.x * dz - fwd.z * dx, fwd.x * dx + fwd.z * dz) * 180) / Math.PI;
+    this.accuracy = f.accuracy;
+  }
+
+  /** Một bước chân theo hướng nhìn (toạ độ cảnh). */
+  step(forward: THREE.Vector3) {
+    if (!this.hasFix || !this.north.ready || this.phase === 'floor') return;
+    const len = Math.hypot(forward.x, forward.z);
+    if (len < 0.2) return;
+    const d = worldToEnu(forward.x / len, forward.z / len, this.north.angle);
+    this.e += d.e * room.user.strideMeters;
+    this.n += d.n * room.user.strideMeters;
+    this.variance += STEP_VARIANCE;
   }
 
   /**
-   * @param vision mặt nạ sàn đã sẵn sàng, null nếu chưa có (không camera, chưa học được màu sàn)
+   * @param compass hướng la bàn của camera (radian) và thời điểm đo, null nếu chưa có
+   * @param vision mặt nạ sàn đã sẵn sàng, null nếu chưa có
    */
-  update(dt: number, cam: THREE.PerspectiveCamera, vision: { mask: Float32Array; sample(x: number, y: number): number } | null) {
+  update(
+    dt: number,
+    cam: THREE.PerspectiveCamera,
+    compass: { value: number; at: number } | null,
+    vision: { mask: Float32Array; sample(x: number, y: number): number } | null,
+    now = performance.now(),
+  ) {
     this.t += dt;
     this.mat.uniforms.uTime.value = this.t;
+    if (this.hasFix) this.variance += DRIFT_VARIANCE * dt;
+    if (compass && now - compass.at < COMPASS_FRESH) {
+      _f.set(0, 0, -1).applyQuaternion(cam.quaternion);
+      // nhìn gần thẳng lên/xuống thì góc ngang của camera không ổn định
+      if (Math.abs(_f.y) < 0.85) this.north.add(groundAngle(cam.quaternion), compass.value, dt);
+    }
+    const north = this.north.angle;
+    enuToWorld(this.e - this.originE, this.n - this.originN, north, this.position);
+    enuToWorld(-this.originE, -this.originN, north, this.target);
+
+    if (this.phase === 'locating' && this.hasFix && this.north.ready) this.phase = 'walk';
+    if (this.phase === 'walk' && this.remaining <= destination.arriveRadius) {
+      this.phase = 'arrived';
+      this.onArrive?.();
+    }
     const walking = this.phase === 'walk';
     this.ribbon.visible = walking;
     this.marker.visible = walking || this.phase === 'arrived';
-    this.marker.position.set(this.target.x, 0.3, this.target.y);
+    // điểm đến ở xa: đặt cột sáng theo hướng đích, cách vừa đủ để thấy
+    const far = this.position.distanceTo(this.target);
+    const markAt = far > RANGE ? this.position.clone().lerp(this.target, RANGE / far) : this.target;
+    this.marker.position.set(markAt.x, 1.2, markAt.y);
     if (!walking) return;
 
-    if (this.remaining <= ARRIVE_RADIUS) {
-      this.phase = 'arrived';
-      this.onArrive?.();
-      return;
+    if (!Number.isNaN(this.mapNorth) && Math.abs(wrapAngle(north - this.mapNorth)) > REMAP_NORTH) {
+      this.planner.reset();
+      this.path = [];
     }
     this.observeAt += dt;
     this.planAt += dt;
@@ -212,24 +283,82 @@ export class GuideScene {
       this.planner.observe(vision.mask, cam.projectionMatrixInverse, cam.quaternion, _cam, this.observeAt);
       this.observeAt = 0;
     }
+    const angle = viewAngle(cam.quaternion);
     if (!this.path.length || this.planAt >= PLAN_EVERY) {
+      if (Number.isNaN(this.mapNorth) || !this.path.length) this.mapNorth = north;
       const plan = this.planner.plan(this.position, this.target);
       this.path = plan.points;
       this.blocked = plan.blocked;
       this.planAt = 0;
-      this.resample();
+      this.resample(angle);
+    } else if (Math.abs(wrapAngle(angle - this.resampledAngle)) > RESAMPLE_TURN) {
+      this.resample(angle);
     }
     this.draw(dt, cam, vision);
   }
 
+  /** Điểm trên đường cách người dùng `d` mét (đo dọc theo đường) và chỉ số đoạn chứa nó. */
+  private along(pts: THREE.Vector2[], d: number) {
+    let left = d;
+    for (let i = 1; i < pts.length; i++) {
+      const seg = pts[i - 1].distanceTo(pts[i]);
+      if (seg >= left) return { p: pts[i - 1].clone().lerp(pts[i], seg ? left / seg : 0), i };
+      left -= seg;
+    }
+    return { p: pts[pts.length - 1].clone(), i: pts.length };
+  }
+
+  /**
+   * Đường đi lệch khỏi hướng nhìn (ở sau lưng hay bên cạnh): bắt đầu dải sáng ngay trước mặt
+   * rồi vòng quanh người dùng sang hướng đó, thay cho chữ "quay lại".
+   */
+  leadIn(pts: THREE.Vector2[], camAngle: number): THREE.Vector2[] | null {
+    if (pts.length < 2) return null;
+    const user = pts[0];
+    const join = this.along(pts, LEAD_JOIN);
+    const want = Math.atan2(join.p.x - user.x, -(join.p.y - user.y));
+    let delta = wrapAngle(want - camAngle);
+    if (Math.abs(delta) < LEAD_MIN) {
+      this.leadSide = 0;
+      return null;
+    }
+    if (Math.abs(delta) > LEAD_KEEP_SIDE && this.leadSide && Math.sign(delta) !== this.leadSide) delta -= Math.sign(delta) * Math.PI * 2;
+    this.leadSide = Math.sign(delta);
+    const out: THREE.Vector2[] = [];
+    const fx = Math.sin(camAngle), fz = -Math.cos(camAngle);
+    for (let k = 0; k < 4; k++) {
+      const r = LEAD_NEAR + ((LEAD_FROM - LEAD_NEAR) * k) / 4;
+      out.push(new THREE.Vector2(user.x + fx * r, user.y + fz * r));
+    }
+    for (let k = 0; k <= LEAD_STEPS; k++) {
+      const t = k / LEAD_STEPS;
+      const a = camAngle + delta * t;
+      const r = LEAD_FROM + (LEAD_TO - LEAD_FROM) * t;
+      out.push(new THREE.Vector2(user.x + Math.sin(a) * r, user.y - Math.cos(a) * r));
+    }
+    out.push(join.p, ...pts.slice(join.i));
+    return out;
+  }
+
   /** Chia đường thành POINTS điểm cách đều, bo góc bằng Catmull-Rom. */
-  private resample() {
-    const pts = this.path.map((p) => new THREE.Vector3(p.x, 0, p.y));
+  private resample(camAngle: number) {
+    this.resampledAngle = camAngle;
+    if (this.path.length < 2) return;
+    const lead = this.leadIn(this.path, camAngle);
+    const src = lead ?? this.path;
+    this.leadLength = 0;
+    if (lead) for (let i = 1; i <= LEAD_STEPS + 4; i++) this.leadLength += lead[i].distanceTo(lead[i - 1]);
+    const pts: THREE.Vector3[] = [];
+    for (const p of src) {
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(last.x - p.x, last.z - p.y) > 0.02) pts.push(new THREE.Vector3(p.x, 0, p.y));
+    }
     if (pts.length < 2) return;
     const curve = pts.length === 2 ? new THREE.LineCurve3(pts[0], pts[1]) : new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const total = curve.getLength();
-    const start = Math.min(START_GAP, total * 0.5);
-    const len = Math.max(0.01, Math.min(total, RANGE) - start);
+    const start = lead ? 0 : Math.min(START_GAP, total * 0.5);
+    const range = lead ? this.leadLength + LEAD_TAIL : RANGE;
+    const len = Math.max(0.01, Math.min(total, range) - start);
     const p = new THREE.Vector3();
     for (let i = 0; i < POINTS; i++) {
       curve.getPointAt((start + (i / (POINTS - 1)) * len) / total, p);
@@ -249,7 +378,7 @@ export class GuideScene {
     const pos = this.posAttr.array as Float32Array;
     const uv = this.uvAttr.array as Float32Array;
     const al = this.alphaAttr.array as Float32Array;
-    let along = 0;
+    let alongLen = 0;
     for (let i = 0; i < POINTS; i++) {
       const x = s[i * 2], z = s[i * 2 + 1];
       const a = s[Math.max(0, i - 1) * 2], b = s[Math.max(0, i - 1) * 2 + 1];
@@ -258,7 +387,7 @@ export class GuideScene {
       const l = Math.hypot(tx, tz) || 1;
       tx /= l;
       tz /= l;
-      if (i) along += Math.hypot(x - a, z - b);
+      if (i) alongLen += Math.hypot(x - a, z - b);
       // chỉ hiện rõ trên vùng là sàn, tránh vẽ đè lên tường và đồ vật
       let vis = 1;
       if (vision) {
@@ -266,14 +395,15 @@ export class GuideScene {
         const far = Math.hypot(x - this.position.x, z - this.position.y) > MASK_RANGE;
         vis = Math.max(far ? BEYOND_MASK : MIN_ON_FLOOR, vision.sample(_ndc.x, _ndc.y));
       }
-      vis *= Math.min(1, i / 3) * Math.min(1, (POINTS - 1 - i) / 6 + (i === POINTS - 1 ? 0 : 0.1));
+      if (alongLen < this.leadLength) vis = Math.max(vis, LEAD_MIN_ALPHA);
+      vis *= (this.leadLength ? 1 : Math.min(1, i / 3)) * Math.min(1, (POINTS - 1 - i) / 6 + (i === POINTS - 1 ? 0 : 0.1));
       for (let side = 0; side < 2; side++) {
-        const n = side ? 1 : -1;
+        const nrm = side ? 1 : -1;
         const v = i * 2 + side;
-        pos[v * 3] = x - tz * WIDTH * n;
+        pos[v * 3] = x - tz * WIDTH * nrm;
         pos[v * 3 + 1] = 0.012;
-        pos[v * 3 + 2] = z + tx * WIDTH * n;
-        uv[v * 2] = along;
+        pos[v * 3 + 2] = z + tx * WIDTH * nrm;
+        uv[v * 2] = alongLen;
         uv[v * 2 + 1] = side;
         al[v] = vis;
       }

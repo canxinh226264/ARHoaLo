@@ -10,14 +10,16 @@ Bản chạy nằm ngay trong thư mục này (`index.html`, `assets`, `sw.js`).
 - Tán đào: 36 cụm cành cách khoảng 0,85 m, phủ hết hành lang 26 m; tăng nhánh con và cụm hoa. Khoảng 40.826 bông ở mức cao, 22.450 ở mức thấp, dùng instancing. Vùng cuối hành lang trước đây cấm cành ảo nay cũng được phủ theo yêu cầu.
 - Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
 
-## Dải sáng dẫn đường (thử nghiệm)
+## Dẫn đường tới Cổng Parabol (thử nghiệm)
 
-**Tuỳ chọn → Dải sáng dẫn đường (thử nghiệm)**: đứng yên, hướng máy về phía điểm đến, nhập số mét phía trước và sang phải (số âm là sang trái).
+**Tuỳ chọn → Dẫn đường tới Cổng Parabol (thử nghiệm)** → nhập tầng → **Bắt đầu dẫn đường** (trình duyệt sẽ hỏi quyền vị trí).
 
-- Vị trí ước lượng bằng bước chân, không dùng GPS và không cần API. Càng đi xa càng lệch; lệch thì bấm "Đổi điểm đến" để đặt lại.
-- Dải sáng đi thẳng về đích và lượn quanh vật cản thấy được trên camera (`core/guide-planner.ts`). Vật cản được nhận theo màu nên vật trùng màu sàn không được nhận, và app không biết tường hay phòng chưa lọt vào camera.
-- Khác tầng: chỉ hiện lời nhắc đi cầu thang, không vẽ dải sáng. Web không đo được tầng, nên người dùng tự nhập tầng, xác nhận khi đã tới rồi đặt lại điểm đến.
-- Chế độ này chỉ có ở chế độ camera thường, không có trong AR nâng cao, và cần cảm biến chuyển động. Tính năng này chỉ để thử nghiệm, không thay thế việc tự quan sát khi di chuyển.
+- Điểm đến nằm trong `source/src/config/destination.json`: toạ độ 21.005112, 105.84155 lấy từ điểm ghim "Cổng Parabol" trên Apple Maps, nên kiểm tra lại tại chỗ. Tới gần cổng 12 m (`arriveRadius`) thì coi là đã tới. Đổi điểm đến chỉ cần sửa file này rồi build lại.
+- Vị trí lấy từ GPS, giữa hai lần đo thì cộng bước chân. Hướng Bắc lấy từ la bàn: Android dùng `deviceorientationabsolute`, iOS dùng `webkitCompassHeading`. Không cần API hay key nên không tốn tiền.
+- Dải sáng đi theo đường chim bay tới cổng, không theo đường phố, và lượn quanh vật cản thấy được trên camera. Nếu đường nằm sau lưng hoặc bên cạnh, dải sáng chạy thẳng từ gần chân ra trước mặt rồi bẻ cong sang hướng đó, thay cho chữ nhắc quay lại.
+- Khung thông báo gọn một dòng, gồm khoảng cách còn lại, nút "Đặt lại" và nút ×. Khi GPS sai số trên 20 m, khung hiện thêm "GPS ±… m".
+- Khác tầng: chỉ hiện lời nhắc đi cầu thang, không vẽ dải sáng; bấm "Đã tới tầng …" khi xuống tới nơi.
+- Giới hạn: GPS điện thoại thường lệch 5–15 m, trong nhà hoặc giữa nhà cao còn lệch hơn. La bàn bị nhiễu gần khung sắt và xe cộ; lệch thì lắc máy theo hình số 8. Chế độ này chỉ có trong chế độ camera thường, cần cảm biến chuyển động và quyền vị trí. Tính năng chỉ để thử nghiệm, không thay thế việc tự quan sát khi đi đường.
 
 ## Chạy lại hoặc chỉnh tiếp
 

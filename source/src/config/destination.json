@@ -1,0 +1,10 @@
+{
+ "_doc": "Điểm đến của dải sáng dẫn đường. Toạ độ lấy từ điểm ghim 'Cổng Parabol' trên Apple Maps (đường Giải Phóng, Bách Khoa, Hà Nội) – nên kiểm tra lại tại chỗ. arriveRadius: cách cổng bao nhiêu mét thì coi là đã tới (GPS điện thoại thường lệch 5–15 m).",
+ "nameVi": "Cổng Parabol, ĐH Bách khoa Hà Nội",
+ "nameEn": "Parabol Gate, Hanoi University of Science and Technology",
+ "shortVi": "Cổng Parabol",
+ "shortEn": "Parabol Gate",
+ "lat": 21.005112,
+ "lng": 105.84155,
+ "arriveRadius": 12
+}

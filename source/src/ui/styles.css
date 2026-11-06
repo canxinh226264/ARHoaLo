@@ -220,6 +220,18 @@ body.no-camera {
 .wayfind .row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .wayfind .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 18px; }
 .wayfind .btn--ghost { min-height: 44px; }
+/* dẫn đường: một dòng gọn để không che khung hình */
+.wayfind.wayfind--compact {
+  display: flex; align-items: center; gap: 6px; width: max-content; max-width: calc(100% - 32px);
+  padding: 5px 5px 5px 14px; border-radius: 999px; text-align: left;
+}
+.wayfind--compact .wayfind__text { flex: 1 1 auto; min-width: 0; font-size: var(--s-body); line-height: 1.25; }
+.wayfind--compact .btn, .wayfind--compact .btn--ghost { flex: none; min-height: 40px; padding: 4px 14px; font-size: var(--s-sm); }
+.wayfind__x {
+  flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent;
+  color: var(--cobalt); font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
+}
+.wayfind__x:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
 
 .artcard {
   position: absolute; left: 50%; transform: translateX(-50%);

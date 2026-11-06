@@ -20,14 +20,15 @@ import { HandTracker, HandOccluder } from './tracking/hand-tracker';
 import { ManualMarkerTracker } from './tracking/marker-tracker';
 import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
-import { GuideScene } from './scenes/guide-scene';
+import { GuideScene, DESTINATION } from './scenes/guide-scene';
+import { GeoTracker } from './core/geo-tracker';
 import { room } from './config/room';
 import artifactsCfg from './config/artifacts.json';
 import { ArtifactTracker } from './tracking/artifact-tracker';
 import { ArtifactViewer, type ArtifactItem } from './scenes/artifact-viewer';
 import { showGate, showPermissionSheet, showOnboarding, hasOnboarded, toast } from './ui/screens';
 import { Hud, type Settings } from './ui/hud';
-import { t } from './ui/i18n';
+import { t, getLang } from './ui/i18n';
 import { petalSwirl, chime } from './ui/transition';
 import type { ColliderSource, DynamicCollider } from './physics/colliders';
 
@@ -46,6 +47,11 @@ R.scene.add(world);
 const indoor = new IndoorScene(world);
 const outdoor = new OutdoorScene(R.scene, R.camera);
 const guide = new GuideScene(R.scene);
+const geo = new GeoTracker(DESTINATION.lat, DESTINATION.lng);
+geo.onFix = (f) => guide.gpsFix(f);
+geo.onError = (e) => {
+  if (settings.mode === 'guide') toast(ui, e === 'denied' ? t('guideGpsDenied') : e === 'insecure' ? t('errInsecure') : t('guideGpsNone'), 7000, true);
+};
 const hand = new HandTracker();
 const occluder = new HandOccluder(world);
 const localizer = new CorridorLocalizer();
@@ -234,7 +240,10 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
     indoor.setVisible(m === 'indoor');
     outdoor.setVisible(m === 'outdoor');
     guide.setVisible(m === 'guide');
-    if (m !== 'guide') guide.stop();
+    if (m !== 'guide') {
+      guide.stop();
+      geo.stop();
+    }
     occluder.mesh.visible = false;
     if (m === 'indoor') {
       artTracker.paused = false;
@@ -325,23 +334,27 @@ const handlers = {
   },
   guideOpen,
   guideFloorDone() {
-    guide.lastSetup = { ...guide.lastSetup, floorNow: guide.floorTo };
-    guideOpen();
+    guide.start({ floorNow: guide.floorTo, floorTo: guide.floorTo });
   },
   guideExit() {
     setMode('indoor', true);
   },
 };
 
-/** Mở biểu mẫu đặt điểm đến; hướng "phía trước" lấy theo lúc bấm bắt đầu. */
+/** Mở biểu mẫu dẫn đường; GPS bắt đầu ngay trong cú bấm "Bắt đầu". */
 function guideOpen() {
   hud?.openGuideSetup(guide.lastSetup, (s) => {
     if (settings.mode !== 'guide') setMode('guide', false);
-    guide.start(s, R.camera);
+    if (!guide.hasFix) geo.start();
+    guide.start(s);
+    if (s.floorNow !== s.floorTo) toast(ui, t('guideStairs'), 4000);
+    setTimeout(() => {
+      if (settings.mode === 'guide' && geo.compass === null) toast(ui, t('guideNoCompass'), 7000, true);
+    }, 4000);
   });
 }
 guide.onArrive = () => {
-  toast(ui, t('guideArrived'), 4000);
+  toast(ui, t('guideArrived')(getLang() === 'vi' ? DESTINATION.shortVi : DESTINATION.shortEn), 5000);
   if (settings.sound) chime();
 };
 
@@ -483,8 +496,6 @@ const roomToClip = new THREE.Matrix4();
 const invWorldQ = new THREE.Quaternion();
 const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
 const VISION_MS = 100;
-/** Khung hình dọc hẹp: dải sáng lệch quá góc này (độ) là gần ra khỏi màn hình, nên nhắc xoay máy. */
-const GUIDE_IN_VIEW = 25;
 let visionAt = 0;
 const visionQ = new THREE.Quaternion();
 // ?debug: ô nhỏ góc trên trái cho thấy app đang coi đâu là sàn (xanh)
@@ -589,10 +600,8 @@ function tick(now: number, frame?: XRFrame) {
       indoor.petals.update(dt, roomToClip, camPosRoom, fwdRoom);
     }
   } else if (settings.mode === 'guide') {
-    guide.update(dt, R.camera, canScan && floorVision.ready ? floorVision : null);
-    hud?.setRemaining(guide.remaining);
-    hud?.setTurn(guide.turnHint(fwdRoom), GUIDE_IN_VIEW);
-    hud?.setGuide(guide);
+    guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt }, canScan && floorVision.ready ? floorVision : null);
+    hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.remaining, accuracy: guide.accuracy });
   } else {
     outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
     hud?.setRemaining(outdoor.remaining);
@@ -629,4 +638,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo };

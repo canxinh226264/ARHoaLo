@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -258,36 +258,123 @@ test('The holder\'s leg rising from the frame edge is not an obstacle, a separat
   for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
   assert.ok(p.score.filter((s) => s < -0.25).length > 0);
 });
-test('Guide places the destination by heading, waits on another floor and detects arrival', () => {
+const deg = (r) => (r * 180) / Math.PI;
+const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
+
+test('Geo: metres from lat/lng, and world/ENU conversions are inverse', () => {
+  const d = toEnu(21.006112, 105.84155, 21.005112, 105.84155);
+  assert.ok(near(d.n, 111.2, 0.2) && near(d.e, 0, 1e-9), JSON.stringify(d));
+  const e = toEnu(21.005112, 105.85155, 21.005112, 105.84155);
+  assert.ok(near(e.e, 1038.2, 1), JSON.stringify(e));
+  for (const north of [0, 1, -2.5]) {
+    const w = enuToWorld(30, -40, north);
+    const back = worldToEnu(w.x, w.y, north);
+    assert.ok(near(back.e, 30, 1e-9) && near(back.n, -40, 1e-9));
+  }
+  // north = góc của hướng Bắc trong cảnh: điểm ở phía Bắc nằm đúng theo hướng đó
+  const w = enuToWorld(0, 10, 0.7);
+  assert.ok(near(Math.atan2(w.x, -w.y), 0.7, 1e-9));
+});
+test('Compass: phone held upright facing north/west/east', () => {
+  assert.ok(near(deg(compassFromAbsolute(0, 90, 0, 0)), 0, 1e-6));
+  assert.ok(near(deg(compassFromAbsolute(90, 90, 0, 0)), -90, 1e-6)); // alpha tăng ngược chiều kim đồng hồ: quay sang Tây
+  assert.ok(near(deg(compassFromAbsolute(270, 90, 0, 0)), 90, 1e-6));
+  assert.ok(near(deg(compassFromAbsolute(0, 60, 0, 0)), 0, 1e-6)); // chúc xuống vẫn giữ hướng
+});
+test('North estimate averages across the ±180° seam', () => {
+  const n = new NorthEstimate();
+  for (let i = 0; i < 20; i++) n.add(0, i % 2 ? Math.PI - 0.05 : -Math.PI + 0.05, 0.1);
+  assert.ok(Math.abs(Math.abs(n.angle) - Math.PI) < 0.06, String(n.angle));
+});
+
+function guideRig() {
   const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
   globalThis.document = { createElement: () => ({ getContext: () => ctx }) };
   const g = new GuideScene(new THREE.Scene());
   const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
   cam.position.y = 1.45;
+  // camera nhìn theo −Z của cảnh, máy dựng đứng
   cam.updateMatrixWorld();
-  g.start({ ahead: 5, right: 2, floorNow: 1, floorTo: 1 }, cam);
+  return { g, cam };
+}
+/** Camera nhìn về hướng `heading` (la bàn), cảnh coi −Z là hướng nhìn. */
+function tick(g, cam, heading, n = 10) {
+  for (let i = 0; i < n; i++) g.update(0.1, cam, { value: heading, at: 1000 }, null, 1000);
+}
+
+test('Guide waits for GPS and compass, then points the light at the gate', () => {
+  const { g, cam } = guideRig();
+  g.start({ floorNow: 1, floorTo: 1 });
+  tick(g, cam, 0);
+  assert.equal(g.phase, 'locating');
+  g.gpsFix({ e: 0, n: -100, accuracy: 6 }); // cách cổng 100 m về phía Nam
+  tick(g, cam, 0); // đang nhìn về hướng Bắc
   assert.equal(g.phase, 'walk');
-  assert.ok(g.target.distanceTo(V2(2, -5)) < 1e-6, JSON.stringify(g.target));
-
-  g.start({ ahead: 5, right: 0, floorNow: 4, floorTo: 1 }, cam);
-  assert.equal(g.phase, 'floor');
-  g.step(new THREE.Vector3(0, 0, -1));
-  assert.equal(g.position.length(), 0, 'no walking while changing floors');
-  g.update(0.1, cam, null);
-  assert.equal(g.ribbon.visible, false);
-
-  // đường vòng sang phải, ngoài khung hình: phải nhắc xoay sang phải
-  g.start({ ahead: 2.4, right: 0.8, floorNow: 1, floorTo: 1 }, cam);
-  g.path = [V2(0, 0), V2(1.5, -1.3), V2(0.8, -2.4)];
-  assert.ok(g.turnHint(new THREE.Vector3(0, 0, -1)) > 25);
-
+  assert.ok(near(g.remaining, 100, 1e-6));
+  const dir = g.target.clone().sub(g.position);
+  assert.ok(Math.abs(Math.atan2(dir.x, -dir.y)) < 0.01, 'gate straight ahead');
+  // quay người sang hướng Đông: cổng phải nằm bên trái trong cảnh
+  const { g: g2, cam: cam2 } = guideRig();
+  g2.start({ floorNow: 1, floorTo: 1 });
+  g2.gpsFix({ e: 0, n: -100, accuracy: 6 });
+  tick(g2, cam2, Math.PI / 2);
+  const d2 = g2.target.clone().sub(g2.position);
+  assert.ok(near(Math.atan2(d2.x, -d2.y), -Math.PI / 2, 0.01), String(Math.atan2(d2.x, -d2.y)));
+});
+test('Guide fuses steps with GPS and arrives near the gate', () => {
+  const { g, cam } = guideRig();
   let arrived = 0;
   g.onArrive = () => arrived++;
-  g.start({ ahead: 2, right: 0, floorNow: 1, floorTo: 1 }, cam);
-  g.update(0.1, cam, null);
-  assert.equal(g.ribbon.visible, true);
-  for (let i = 0; i < 2; i++) g.step(new THREE.Vector3(0, 0, -1));
-  g.update(0.1, cam, null);
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -20, accuracy: 5 });
+  tick(g, cam, 0);
+  for (let i = 0; i < 5; i++) g.step(new THREE.Vector3(0, 0, -1)); // đi về hướng Bắc
+  assert.ok(near(g.remaining, 20 - 5 * 0.62, 1e-6), String(g.remaining));
+  g.gpsFix({ e: 0, n: -40, accuracy: 200 }); // GPS rất kém: gần như bỏ qua
+  assert.ok(g.remaining < 18, String(g.remaining));
+  g.gpsFix({ e: 0, n: -10, accuracy: 3 }); // GPS tốt kéo về gần đúng
+  assert.ok(g.remaining < 12.5, String(g.remaining));
+  tick(g, cam, 0, 1);
+  if (g.remaining <= DESTINATION.arriveRadius) assert.equal(g.phase, 'arrived');
+  g.gpsFix({ e: 0, n: -2, accuracy: 3 });
+  g.gpsFix({ e: 0, n: -2, accuracy: 3 });
+  tick(g, cam, 0, 1);
   assert.equal(g.phase, 'arrived');
+  // đứng yên nhận GPS thật lâu rồi mới đi: lần đo mới vẫn phải kéo được vị trí
+  const { g: g3, cam: cam3 } = guideRig();
+  g3.start({ floorNow: 1, floorTo: 1 });
+  for (let i = 0; i < 60; i++) { g3.gpsFix({ e: 0, n: -60, accuracy: 6 }); tick(g3, cam3, 0, 10); }
+  for (let i = 0; i < 3; i++) { g3.gpsFix({ e: 0, n: -40, accuracy: 6 }); tick(g3, cam3, 0, 10); }
+  assert.ok(g3.remaining < 50, String(g3.remaining)); // sau ~3 giây đã theo được phần lớn
   assert.equal(arrived, 1);
+});
+test('Guide on another floor waits and ignores steps', () => {
+  const { g, cam } = guideRig();
+  g.start({ floorNow: 4, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -50, accuracy: 5 });
+  tick(g, cam, 0);
+  assert.equal(g.phase, 'floor');
+  g.step(new THREE.Vector3(0, 0, -1));
+  assert.ok(near(g.remaining, 50, 1e-6));
+  assert.equal(g.ribbon.visible, false);
+  g.start({ floorNow: 1, floorTo: 1 });
+  tick(g, cam, 0);
+  assert.equal(g.phase, 'walk');
+});
+test('Path behind the user: the light starts in front and curves around', () => {
+  const { g } = guideRig();
+  const pts = [V2(0, 0), V2(0, 5)]; // đường đi về phía sau (+Z), camera nhìn −Z
+  const lead = g.leadIn(pts, 0);
+  assert.ok(lead, 'needs a lead-in');
+  assert.ok(lead[0].y < -0.9 && Math.abs(lead[0].x) < 0.01, 'starts ahead: ' + JSON.stringify(lead[0]));
+  assert.ok(lead[4].y < -2.3 && Math.abs(lead[4].x) < 0.01, 'runs straight ahead before bending');
+  // vòng liên tục quanh người dùng, không cắt qua chân
+  for (let i = 1; i < 24; i++) assert.ok(lead[i].distanceTo(lead[i - 1]) < 0.6, String(i)); // đoạn thẳng + vòng + điểm nối
+  for (const p of lead.slice(0, 23)) assert.ok(p.length() > 0.9);
+  assert.ok(lead.at(-1).distanceTo(V2(0, 5)) < 1e-9);
+  // đi gần như ngược hướng: giữ nguyên bên vòng giữa các lần vẽ
+  const side = Math.sign(lead[13].x);
+  assert.equal(Math.sign(g.leadIn([V2(0, 0), V2(0.05 * -side, 5)], 0)[13].x), side);
+  // đường ở phía trước: không vòng
+  assert.equal(g.leadIn([V2(0, 0), V2(0.3, -5)], 0), null);
 });
