@@ -5,17 +5,20 @@ import type { GeoFix } from '../core/geo-tracker';
 import { room } from '../config/room';
 import { theme } from '../config/theme';
 import destination from '../config/destination.json';
+import routing from '../config/routing.json';
 
 /**
  * Dải sáng dẫn đường tới một điểm cố định (config/destination.json: cổng Parabol).
  *  - Vị trí: GPS, giữa hai lần GPS thì cộng bước chân; trộn hai nguồn theo độ tin cậy.
  *  - Hướng: la bàn cho biết hướng Bắc trong cảnh (cảm biến xoay của web không có hướng Bắc).
- *  - Dải sáng đi thẳng về đích và lượn quanh vật cản thấy được trên camera. Đường nằm
- *    sau lưng hay ngoài khung hình thì dải sáng bắt đầu ngay trước mặt rồi vòng ra phía đó.
+ *  - Tuyến: đi theo đường phố lấy từ OpenRouteService (onNeedRoute → setRoute). Ở gần thì
+ *    dải sáng lượn quanh vật cản thấy được trên camera rồi nhập lại tuyến; lệch tuyến lâu thì
+ *    xin tuyến mới. Không lấy được tuyến thì đi theo hướng chim bay.
+ *  - Đường nằm sau lưng hay ngoài khung hình: dải sáng bắt đầu trước mặt rồi vòng ra phía đó.
  *  - Khác tầng: chỉ nhắc đi cầu thang. Web không đo được tầng nên người dùng tự xác nhận.
- * Không biết đường phố hay toà nhà: đi thẳng theo hướng chim bay.
  */
 export type GuidePhase = 'idle' | 'locating' | 'floor' | 'walk' | 'arrived';
+export type RouteState = 'none' | 'loading' | 'ok' | 'failed';
 
 export interface GuideSetup {
   floorNow: number;
@@ -35,6 +38,10 @@ const MIN_ON_FLOOR = 0.12;
 /** Mặt nạ sàn chỉ có giá trị ở gần; xa hơn thì vẽ mờ thay vì ẩn hẳn. */
 const MASK_RANGE = 4.5; // m
 const BEYOND_MASK = 0.35;
+/** Dải sáng mờ dần theo khoảng cách để đoạn xa không chói, nhất là khi chạy tới đường chân trời. */
+const FADE_FROM = 4; // m
+const FADE_TO = 12; // m
+const FAR_ALPHA = 0.45;
 /** Đường lệch khỏi hướng nhìn quá góc này thì vẽ đoạn vòng từ trước mặt (rad, ~29°). */
 const LEAD_MIN = 0.5;
 /** Đi gần như ngược hướng: giữ bên vòng cũ, tránh dải sáng lật trái/phải. */
@@ -54,6 +61,10 @@ const STEP_VARIANCE = 0.15; // m² sai số thêm sau mỗi bước chân
 const DRIFT_VARIANCE = 4; // m²/giây
 const COMPASS_FRESH = 1000; // ms
 const REMAP_NORTH = 0.25; // rad: hướng Bắc đổi quá mức này thì bỏ bản đồ vật cản cũ
+/** Dải sáng né vật cản tới điểm trên tuyến cách chừng này (m), xa hơn thì đi đúng theo tuyến. */
+const ROUTE_CARROT = 6;
+/** Độ dài phần tuyến nối thêm sau điểm đó (m), đủ để thấy chỗ rẽ phía trước. */
+const ROUTE_AHEAD = 30;
 
 const _cam = new THREE.Vector3();
 const _ndc = new THREE.Vector3();
@@ -83,7 +94,14 @@ export class GuideScene {
   accuracy = NaN;
   hasFix = false;
   lastSetup: GuideSetup = { floorNow: 1, floorTo: 1 };
+  routeState: RouteState = 'none';
   onArrive?: () => void;
+  /** Cần tuyến mới từ vị trí (mét Đông/Bắc so với điểm đến). */
+  onNeedRoute?: (e: number, n: number) => void;
+  /** Tuyến theo phố, mét Đông/Bắc so với điểm đến (x = Đông, y = Bắc). */
+  private route: THREE.Vector2[] | null = null;
+  private routeAskedAt = -Infinity;
+  private offRouteFor = 0;
 
   private e = 0; // mét Đông/Bắc so với điểm đến
   private n = 0;
@@ -179,9 +197,100 @@ export class GuideScene {
     this.root.visible = v;
   }
 
-  /** Khoảng cách tới điểm đến (m). */
+  /** Khoảng cách thẳng tới điểm đến (m). */
   get remaining() {
     return Math.hypot(this.e, this.n);
+  }
+
+  /** Quãng đường còn phải đi (m): theo tuyến nếu có, không thì đường thẳng. */
+  get distanceLeft() {
+    const r = this.route;
+    if (!r) return this.remaining;
+    const p = this.projectOnRoute();
+    let d = p.off + p.point.distanceTo(r[p.seg + 1]);
+    for (let i = p.seg + 2; i < r.length; i++) d += r[i - 1].distanceTo(r[i]);
+    return d;
+  }
+
+  get hasRoute() {
+    return !!this.route;
+  }
+
+  /** Kết quả xin tuyến (null = không lấy được, đi theo hướng chim bay). */
+  setRoute(points: { e: number; n: number }[] | null) {
+    if (points && points.length >= 2) {
+      this.route = points.map((p) => new THREE.Vector2(p.e, p.n));
+      this.routeState = 'ok';
+    } else if (!this.route) {
+      this.routeState = 'failed';
+    } else {
+      this.routeState = 'ok'; // giữ tuyến cũ
+    }
+    this.offRouteFor = 0;
+    this.path = [];
+  }
+
+  /** Điểm gần nhất trên tuyến, chỉ số đoạn và khoảng cách lệch (m). */
+  private projectOnRoute() {
+    const r = this.route!;
+    const me = new THREE.Vector2(this.e, this.n);
+    let best = { seg: 0, point: r[0].clone(), off: Infinity };
+    const ab = new THREE.Vector2(), ap = new THREE.Vector2();
+    for (let i = 0; i < r.length - 1; i++) {
+      ab.subVectors(r[i + 1], r[i]);
+      const len2 = ab.lengthSq();
+      const t = len2 ? THREE.MathUtils.clamp(ap.subVectors(me, r[i]).dot(ab) / len2, 0, 1) : 0;
+      const q = r[i].clone().addScaledVector(ab, t);
+      const off = q.distanceTo(me);
+      if (off < best.off) best = { seg: i, point: q, off };
+    }
+    return best;
+  }
+
+  /** Tuyến phía trước, đổi sang toạ độ cảnh: điểm cách `carrot` m làm đích né vật cản, rồi phần còn lại. */
+  private routeAhead(north: number) {
+    const r = this.route!;
+    const p = this.projectOnRoute();
+    const ahead: THREE.Vector2[] = [p.point];
+    for (let i = p.seg + 1; i < r.length; i++) ahead.push(r[i]);
+    const toWorld = (v: THREE.Vector2) => enuToWorld(v.x - this.originE, v.y - this.originN, north);
+    let left = ROUTE_CARROT;
+    let i = 1;
+    let carrot = ahead[ahead.length - 1];
+    for (; i < ahead.length; i++) {
+      const seg = ahead[i - 1].distanceTo(ahead[i]);
+      if (seg >= left) {
+        carrot = ahead[i - 1].clone().lerp(ahead[i], seg ? left / seg : 0);
+        break;
+      }
+      left -= seg;
+    }
+    const rest: THREE.Vector2[] = [];
+    let len = 0;
+    let prev = carrot;
+    for (; i < ahead.length && len < ROUTE_AHEAD; i++) {
+      len += prev.distanceTo(ahead[i]);
+      rest.push(toWorld(ahead[i]));
+      prev = ahead[i];
+    }
+    return { carrot: toWorld(carrot), rest };
+  }
+
+  /** Xin tuyến khi chưa có, hoặc khi đã đi lệch tuyến đủ lâu. */
+  private checkRoute(dt: number) {
+    if (!this.hasFix || !this.onNeedRoute) return;
+    const canAsk = this.t - this.routeAskedAt >= routing.minSecondsBetweenRequests;
+    let ask = this.routeState === 'none';
+    if (this.route) {
+      const limit = Math.max(routing.offRouteMeters, (Number.isFinite(this.accuracy) ? this.accuracy : 0) * 1.5);
+      this.offRouteFor = this.projectOnRoute().off > limit ? this.offRouteFor + dt : 0;
+      ask = this.offRouteFor >= routing.rerouteAfterSeconds && canAsk;
+    }
+    if (!ask) return;
+    this.routeAskedAt = this.t;
+    if (!this.route) this.routeState = 'loading';
+    this.offRouteFor = 0;
+    this.onNeedRoute(this.e, this.n);
   }
 
   start(s: GuideSetup) {
@@ -199,6 +308,9 @@ export class GuideScene {
   stop() {
     this.phase = 'idle';
     this.hasFix = false;
+    this.route = null;
+    this.routeState = 'none';
+    this.routeAskedAt = -Infinity;
     this.accuracy = NaN;
     this.north.reset();
   }
@@ -258,6 +370,7 @@ export class GuideScene {
     enuToWorld(-this.originE, -this.originN, north, this.target);
 
     if (this.phase === 'locating' && this.hasFix && this.north.ready) this.phase = 'walk';
+    if (this.phase === 'walk' || this.phase === 'locating') this.checkRoute(dt);
     if (this.phase === 'walk' && this.remaining <= destination.arriveRadius) {
       this.phase = 'arrived';
       this.onArrive?.();
@@ -286,9 +399,17 @@ export class GuideScene {
     const angle = viewAngle(cam.quaternion);
     if (!this.path.length || this.planAt >= PLAN_EVERY) {
       if (Number.isNaN(this.mapNorth) || !this.path.length) this.mapNorth = north;
-      const plan = this.planner.plan(this.position, this.target);
-      this.path = plan.points;
-      this.blocked = plan.blocked;
+      if (this.route) {
+        // gần: né vật cản tới một điểm trên tuyến; xa: đi đúng theo tuyến
+        const { carrot, rest } = this.routeAhead(north);
+        const plan = this.planner.plan(this.position, carrot);
+        this.path = plan.blocked ? plan.points : [...plan.points, ...rest];
+        this.blocked = plan.blocked;
+      } else {
+        const plan = this.planner.plan(this.position, this.target);
+        this.path = plan.points;
+        this.blocked = plan.blocked;
+      }
       this.planAt = 0;
       this.resample(angle);
     } else if (Math.abs(wrapAngle(angle - this.resampledAngle)) > RESAMPLE_TURN) {
@@ -396,6 +517,8 @@ export class GuideScene {
         vis = Math.max(far ? BEYOND_MASK : MIN_ON_FLOOR, vision.sample(_ndc.x, _ndc.y));
       }
       if (alongLen < this.leadLength) vis = Math.max(vis, LEAD_MIN_ALPHA);
+      const dist = Math.hypot(x - this.position.x, z - this.position.y);
+      vis *= 1 - (1 - FAR_ALPHA) * THREE.MathUtils.smoothstep(dist, FADE_FROM, FADE_TO);
       vis *= (this.leadLength ? 1 : Math.min(1, i / 3)) * Math.min(1, (POINTS - 1 - i) / 6 + (i === POINTS - 1 ? 0 : 0.1));
       for (let side = 0; side < 2; side++) {
         const nrm = side ? 1 : -1;

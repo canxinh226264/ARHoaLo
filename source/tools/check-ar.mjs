@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, fromEnu, parseRoute, fetchRoute, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -377,4 +377,74 @@ test('Path behind the user: the light starts in front and curves around', () => 
   assert.equal(Math.sign(g.leadIn([V2(0, 0), V2(0.05 * -side, 5)], 0)[13].x), side);
   // đường ở phía trước: không vòng
   assert.equal(g.leadIn([V2(0, 0), V2(0.3, -5)], 0), null);
+});
+
+test('Route: reads OpenRouteService GeoJSON and falls back between profiles', async () => {
+  const to = { lat: DESTINATION.lat, lng: DESTINATION.lng };
+  const back = fromEnu(30, -120, to.lat, to.lng);
+  const e = toEnu(back.lat, back.lng, to.lat, to.lng);
+  assert.ok(near(e.e, 30, 1e-6) && near(e.n, -120, 1e-6));
+  const json = { features: [{ geometry: { coordinates: [[back.lng, back.lat], [to.lng, back.lat], [to.lng, to.lat]] }, properties: { summary: { distance: 150 } } }] };
+  const r = parseRoute(json, to, 'foot-walking');
+  assert.equal(r.points.length, 3);
+  assert.ok(near(r.points[1].e, 0, 1e-6) && near(r.points[1].n, -120, 1e-6));
+  assert.equal(parseRoute({ features: [] }, to, 'x'), null);
+  assert.equal(parseRoute({ features: [{ geometry: { coordinates: [[1, 'a'], [2, 3]] } }] }, to, 'x'), null);
+  // không có key: không gọi mạng
+  let calls = 0;
+  assert.equal(await fetchRoute(back, to, '', async () => { calls++; }), null);
+  assert.equal(calls, 0);
+  // đi bộ lỗi (treo/500) → thử xe đạp
+  const seen = [];
+  const fake = async (url, init) => {
+    seen.push(url.split('/').slice(-2)[0]);
+    assert.equal(init.headers.Authorization, 'k');
+    if (url.includes('foot-walking')) return { ok: false, json: async () => ({}) };
+    return { ok: true, json: async () => json };
+  };
+  const got = await fetchRoute(back, to, 'k', fake);
+  assert.deepEqual(seen, ['foot-walking', 'cycling-regular']);
+  assert.equal(got.profile, 'cycling-regular');
+  // tất cả đều lỗi
+  assert.equal(await fetchRoute(back, to, 'k', async () => { throw new Error('offline'); }), null);
+});
+test('Guide follows the street route instead of the straight line, and re-routes when off it', () => {
+  const { g, cam } = guideRig();
+  const asks = [];
+  g.onNeedRoute = (e, n) => asks.push([e, n]);
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 5 }); // cổng ở 100 m phía Bắc
+  tick(g, cam, 0, 3);
+  assert.equal(asks.length, 1);
+  assert.equal(g.routeState, 'loading');
+  // tuyến theo phố: đi sang Đông 40 m, lên Bắc 100 m, rồi về Tây 40 m tới cổng
+  g.setRoute([{ e: 0, n: -100 }, { e: 40, n: -100 }, { e: 40, n: 0 }, { e: 0, n: 0 }]);
+  tick(g, cam, 0, 5);
+  assert.equal(g.routeState, 'ok');
+  assert.ok(near(g.distanceLeft, 180, 1e-6), String(g.distanceLeft));
+  // dải sáng phải đi về phía Đông (bên phải khi nhìn về Bắc), không thẳng lên Bắc
+  const far = g.path.at(-1).clone().sub(g.position);
+  assert.ok(far.x > 20, JSON.stringify(g.path));
+  // vẫn trên tuyến: không xin lại
+  tick(g, cam, 0, 100);
+  assert.equal(asks.length, 1);
+  // GPS báo đã lệch 60 m khỏi tuyến, kéo dài quá 5 giây → xin tuyến mới (cách lần trước ≥ 20 giây)
+  for (let i = 0; i < 2; i++) { g.gpsFix({ e: -60, n: -50, accuracy: 5 }); tick(g, cam, 0, 20); }
+  assert.equal(asks.length, 1, 'chưa lệch đủ lâu / chưa đủ 20 giây từ lần trước');
+  for (let i = 0; i < 4; i++) { g.gpsFix({ e: -60, n: -50, accuracy: 5 }); tick(g, cam, 0, 20); }
+  assert.equal(asks.length, 2, JSON.stringify(asks));
+  // không lấy được tuyến mới: giữ tuyến cũ
+  g.setRoute(null);
+  assert.equal(g.routeState, 'ok');
+});
+test('Guide without a route keeps the straight-line light', () => {
+  const { g, cam } = guideRig();
+  g.onNeedRoute = () => g.setRoute(null);
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 5 });
+  tick(g, cam, 0, 5);
+  assert.equal(g.routeState, 'failed');
+  assert.ok(near(g.distanceLeft, 100, 1e-6));
+  const dir = g.path.at(-1).clone().sub(g.position);
+  assert.ok(Math.abs(Math.atan2(dir.x, -dir.y)) < 0.05);
 });

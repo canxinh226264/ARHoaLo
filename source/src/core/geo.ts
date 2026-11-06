@@ -95,3 +95,11 @@ export function worldToEnu(x: number, z: number, north: number) {
   const s = Math.sin(north), c = Math.cos(north);
   return { e: x * c + z * s, n: x * s - z * c };
 }
+
+/** Phép ngược của toEnu. */
+export function fromEnu(e: number, n: number, lat0: number, lng0: number) {
+  return {
+    lat: lat0 + n / (D2R * EARTH_R),
+    lng: lng0 + e / (D2R * EARTH_R * Math.cos(lat0 * D2R)),
+  };
+}

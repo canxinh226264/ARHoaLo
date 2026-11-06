@@ -2,7 +2,7 @@ import { t, other, getLang, setLang, onLang } from './i18n';
 import { icons } from './icons';
 import { el, sheet } from './screens';
 import { landmarkPanels } from '../config/room';
-import { DESTINATION, type GuidePhase, type GuideSetup } from '../scenes/guide-scene';
+import { DESTINATION, type GuidePhase, type GuideSetup, type RouteState } from '../scenes/guide-scene';
 
 export interface Settings {
   mode: 'indoor' | 'outdoor' | 'guide';
@@ -49,7 +49,7 @@ const PANEL_LABEL: Record<string, string> = {
   D11: 'Bàn quà, cây đào',
 };
 
-type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number; remaining: number; accuracy: number };
+type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number; remaining: number; accuracy: number; routeState: RouteState };
 
 export class Hud {
   readonly el: HTMLElement;
@@ -171,7 +171,7 @@ export class Hud {
     const key = this.guideKey();
     if (key !== this.guideShown) this.refreshWay();
   }
-  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN };
+  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN, routeState: 'none' };
   private guideShown = '';
 
   private guideKey() {
@@ -188,10 +188,12 @@ export class Hud {
     if (g.phase === 'floor') return g.floorTo < g.floorNow ? t('guideGoDown')(g.floorTo) : t('guideGoUp')(g.floorTo);
     if (g.phase === 'arrived') return t('guideArrived')(name);
     if (g.blocked) return t('guideBlocked');
+    if (g.routeState === 'loading') return `${name} · ${t('guideRouting')}…`;
+    const beeline = g.routeState === 'failed' ? ` · ${t('guideBeeline')}` : '';
     const m = g.remaining;
     // làm tròn thô để chữ không nhảy liên tục
     const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', vi ? ',' : '.')} km` : `${m >= 100 ? Math.round(m / 10) * 10 : Math.round(m)} m`;
-    return t('guideLeft')(name, dist) + gps;
+    return t('guideLeft')(name, dist) + beeline + gps;
   }
 
   /** Khung dẫn đường gọn một dòng: chữ ngắn + nút nhỏ, không che phần lớn màn hình. */

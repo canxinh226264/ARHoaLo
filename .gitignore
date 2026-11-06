@@ -3,3 +3,5 @@ source/dist/
 source/public/
 source/.test-output/
 artifacts/
+source/.env.local
+source/.env.*.local

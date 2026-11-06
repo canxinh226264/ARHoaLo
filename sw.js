@@ -1,7 +1,7 @@
 /* Service worker – sinh tự động khi build (vite.config.ts). Không sửa tay trong dist. */
-const VERSION = '918bb84a9b';
+const VERSION = 'bda9b1ff44';
 const CACHE = 'dgx-' + VERSION;
-const PRECACHE = ["./","assets/eb-garamond-latin-400-italic-DSEbMgZu.woff2","assets/eb-garamond-latin-400-normal-BCNrxLz_.woff2","assets/eb-garamond-latin-500-normal-DehAIUv0.woff2","assets/eb-garamond-latin-600-normal-DHwxsLHv.woff2","assets/eb-garamond-vietnamese-400-italic-DQ8HKnks.woff2","assets/eb-garamond-vietnamese-400-normal-CLvJdMEL.woff2","assets/eb-garamond-vietnamese-500-normal-BCT1_K6u.woff2","assets/eb-garamond-vietnamese-600-normal-Dmi8L14S.woff2","assets/index-BRs-o8XD.css","assets/index-BYZUgh5r.js","assets/mindar-image.prod-D0hmC17B.js","assets/vision_bundle-7Scx6tXS.js","brand/blossom.webp","brand/title-cream.webp","brand/title.webp","index.html","markers/artifacts.mind","mediapipe/vision_wasm_internal.js","mediapipe/vision_wasm_internal.wasm","models/hand_landmarker.task","models/hienvat/bucket.glb","models/hienvat/crate.glb"];
+const PRECACHE = ["./","assets/eb-garamond-latin-400-italic-DSEbMgZu.woff2","assets/eb-garamond-latin-400-normal-BCNrxLz_.woff2","assets/eb-garamond-latin-500-normal-DehAIUv0.woff2","assets/eb-garamond-latin-600-normal-DHwxsLHv.woff2","assets/eb-garamond-vietnamese-400-italic-DQ8HKnks.woff2","assets/eb-garamond-vietnamese-400-normal-CLvJdMEL.woff2","assets/eb-garamond-vietnamese-500-normal-BCT1_K6u.woff2","assets/eb-garamond-vietnamese-600-normal-Dmi8L14S.woff2","assets/index-BRs-o8XD.css","assets/index-Dxfkl5Df.js","assets/mindar-image.prod-D0hmC17B.js","assets/vision_bundle-7Scx6tXS.js","brand/blossom.webp","brand/title-cream.webp","brand/title.webp","index.html","markers/artifacts.mind","mediapipe/vision_wasm_internal.js","mediapipe/vision_wasm_internal.wasm","models/hand_landmarker.task","models/hienvat/bucket.glb","models/hienvat/crate.glb"];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

@@ -22,6 +22,8 @@ import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
 import { GuideScene, DESTINATION } from './scenes/guide-scene';
 import { GeoTracker } from './core/geo-tracker';
+import { fromEnu } from './core/geo';
+import { fetchRoute, routingKey } from './core/route-service';
 import { room } from './config/room';
 import artifactsCfg from './config/artifacts.json';
 import { ArtifactTracker } from './tracking/artifact-tracker';
@@ -49,6 +51,16 @@ const outdoor = new OutdoorScene(R.scene, R.camera);
 const guide = new GuideScene(R.scene);
 const geo = new GeoTracker(DESTINATION.lat, DESTINATION.lng);
 geo.onFix = (f) => guide.gpsFix(f);
+// tuyến đi bộ theo phố; lỗi thì dải sáng tạm theo hướng chim bay
+guide.onNeedRoute = (e, n) => {
+  const from = fromEnu(e, n, DESTINATION.lat, DESTINATION.lng);
+  fetchRoute(from, DESTINATION).then((r) => {
+    if (settings.mode !== 'guide') return;
+    const first = !guide.hasRoute;
+    guide.setRoute(r?.points ?? null);
+    if (!r && first) toast(ui, routingKey() ? t('guideRouteFail') : t('guideNoKey'), 6000, true);
+  });
+};
 geo.onError = (e) => {
   if (settings.mode === 'guide') toast(ui, e === 'denied' ? t('guideGpsDenied') : e === 'insecure' ? t('errInsecure') : t('guideGpsNone'), 7000, true);
 };
@@ -601,7 +613,7 @@ function tick(now: number, frame?: XRFrame) {
     }
   } else if (settings.mode === 'guide') {
     guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt }, canScan && floorVision.ready ? floorVision : null);
-    hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.remaining, accuracy: guide.accuracy });
+    hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
   } else {
     outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
     hud?.setRemaining(outdoor.remaining);
