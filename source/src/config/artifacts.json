@@ -1,12 +1,12 @@
 {
-  "_doc": "Hiện vật 3D hiện ra khi camera nhận ra ảnh in. targetIndex = thứ tự ảnh lúc biên dịch markers/artifacts.mind ở thư mục bản chạy (sync-public chép vào source/public) (tools/compile-targets.html). physicalWidth = bề rộng ảnh in thật (m) [CẦN ĐO]. Tên/mô tả: BTC điền, để trống thì thẻ chỉ hiện tên.",
+  "_doc": "Ảnh mốc nhận diện bằng camera (MindAR). targetIndex = thứ tự ảnh lúc biên dịch markers/artifacts.mind ở thư mục bản chạy (tools/compile-targets.html, chọn ảnh đúng thứ tự trong danh sách này). kind: 'model' = hiện model 3D (cần model), 'info' = hiện thẻ văn bản, 'enter' = ảnh cổng triển lãm: thấy là chuyển sang hoa đào rơi. physicalWidth = bề rộng ảnh in thật (m) [CẦN ĐO]. descVi/descEn: BTC điền; [CẦN BỔ SUNG] nghĩa là chưa có nội dung, trợ lý hỏi đáp sẽ không bịa thêm.",
   "targets": "markers/artifacts.mind",
   "items": [
     {
       "id": "bucket",
       "targetIndex": 0,
       "model": "models/hienvat/bucket.glb",
-      "image": "source/markers-src/artifact-bucket.jpg",
+      "image": "source/markers-src/artifact-bucket@3x.jpg",
       "physicalWidth": 0.3,
       "size": 0.8,
       "offset": [
@@ -17,13 +17,14 @@
       "titleVi": "Chậu tôn có quai",
       "titleEn": "Metal basin with handles",
       "descVi": "",
-      "descEn": ""
+      "descEn": "",
+      "kind": "model"
     },
     {
       "id": "crate",
       "targetIndex": 1,
       "model": "models/hienvat/crate.glb",
-      "image": "source/markers-src/artifact-crate.jpg",
+      "image": "source/markers-src/artifact-crate@3x.jpg",
       "physicalWidth": 0.3,
       "size": 0.8,
       "offset": [
@@ -33,6 +34,128 @@
       ],
       "titleVi": "Thùng gỗ",
       "titleEn": "Wooden crate",
+      "descVi": "",
+      "descEn": "",
+      "kind": "model"
+    },
+    {
+      "id": "panel-F",
+      "kind": "info",
+      "targetIndex": 2,
+      "image": "source/markers-src/panel-F@400.jpg",
+      "physicalWidth": 2.0,
+      "titleVi": "Panel F · Lời giới thiệu",
+      "titleEn": "Panel F · Introduction",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-A1",
+      "kind": "info",
+      "targetIndex": 3,
+      "image": "source/markers-src/panel-A1@400.jpg",
+      "physicalWidth": 2.5,
+      "titleVi": "Panel A1 · Phần A, đoạn 1",
+      "titleEn": "Panel A1 · Section A, part 1",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-A2",
+      "kind": "info",
+      "targetIndex": 4,
+      "image": "source/markers-src/panel-A2@400.jpg",
+      "physicalWidth": 2.5,
+      "titleVi": "Panel A2 · Phần A, đoạn 2",
+      "titleEn": "Panel A2 · Section A, part 2",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-A3",
+      "kind": "info",
+      "targetIndex": 5,
+      "image": "source/markers-src/panel-A3@400.jpg",
+      "physicalWidth": 2.5,
+      "titleVi": "Panel A3 · Phần A, đoạn 3",
+      "titleEn": "Panel A3 · Section A, part 3",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-A4",
+      "kind": "info",
+      "targetIndex": 6,
+      "image": "source/markers-src/panel-A4@400.jpg",
+      "physicalWidth": 2.5,
+      "titleVi": "Panel A4 · Phần A, đoạn 4",
+      "titleEn": "Panel A4 · Section A, part 4",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-B2",
+      "kind": "info",
+      "targetIndex": 7,
+      "image": "source/markers-src/panel-B2@400.jpg",
+      "physicalWidth": 3.0,
+      "titleVi": "Panel B2 · Chi bộ Đảng",
+      "titleEn": "Panel B2 · The Party cell",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-C4",
+      "kind": "info",
+      "targetIndex": 8,
+      "image": "source/markers-src/panel-C4@400.jpg",
+      "physicalWidth": 1.0,
+      "titleVi": "Panel C4 · Chợ Tết xưa",
+      "titleEn": "Panel C4 · Tết market in the past",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-C8",
+      "kind": "info",
+      "targetIndex": 9,
+      "image": "source/markers-src/panel-C8@400.jpg",
+      "physicalWidth": 1.0,
+      "titleVi": "Panel C8 · Chợ Tết nay",
+      "titleEn": "Panel C8 · Tết market today",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "panel-D11",
+      "kind": "info",
+      "targetIndex": 10,
+      "image": "source/markers-src/panel-D11@400.jpg",
+      "physicalWidth": 5.0,
+      "titleVi": "Panel D11 · Bàn quà, cây đào – bảng Tết Nguyên Đán 1953",
+      "titleEn": "Panel D11 · Gift table and peach tree – the 1953 Lunar New Year board",
+      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
+      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+    },
+    {
+      "id": "gate-G1",
+      "kind": "enter",
+      "targetIndex": 11,
+      "image": "source/markers-src/panel-G1@400.jpg",
+      "physicalWidth": 2.0,
+      "titleVi": "Cổng triển lãm G1",
+      "titleEn": "Exhibition gate G1",
+      "descVi": "",
+      "descEn": ""
+    },
+    {
+      "id": "gate-G2",
+      "kind": "enter",
+      "targetIndex": 12,
+      "image": "source/markers-src/panel-G2@400.jpg",
+      "physicalWidth": 0.6,
+      "titleVi": "Biển tên trưng bày G2",
+      "titleEn": "Exhibition sign G2",
       "descVi": "",
       "descEn": ""
     }

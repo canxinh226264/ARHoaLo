@@ -16,7 +16,14 @@ import type { Controller } from '../vendor/mindar/mindar-image.prod.js';
 export interface ArtifactTarget {
   targetIndex: number;
   physicalWidth: number;
+  /** Chỉ cần biết đang nhìn ảnh nào (thẻ văn bản, ảnh cổng), không cần bám vị trí để đặt model. */
+  poseless?: boolean;
 }
+
+/** Ảnh không cần vị trí: phát hiện liên tiếp chừng này lần là báo thấy (không chờ bám ổn định). */
+const POSELESS_HITS = 2;
+/** Ảnh không cần vị trí: không phát hiện lại trong chừng này (ms) thì coi như đã rời ảnh. */
+const POSELESS_LOST_MS = 2500;
 
 export type TrackerStatus = 'off' | 'loading' | 'ready' | 'error';
 
@@ -40,6 +47,9 @@ export class ArtifactTracker {
   private warm = 0;
   private miss = 0;
   private showing = -1;
+  private hitIdx = -1;
+  private hits = 0;
+  private seenAt = 0;
   private raw = new THREE.Matrix4();
   private hasPose = false;
   private pos = new THREE.Vector3();
@@ -118,9 +128,13 @@ export class ArtifactTracker {
           const r = await c._detectAndMatch(inputT, all);
           if (r.targetIndex !== -1) {
             this.stats.matches++;
-            this.trackIdx = r.targetIndex;
-            this.mvt = r.modelViewTransform;
-            this.warm = 0;
+            if (this.targets.find((t) => t.targetIndex === r.targetIndex)?.poseless) {
+              this.poselessHit(r.targetIndex, now);
+            } else {
+              this.trackIdx = r.targetIndex;
+              this.mvt = r.modelViewTransform;
+              this.warm = 0;
+            }
           }
         }
         if (this.trackIdx >= 0 && this.mvt) {
@@ -142,7 +156,14 @@ export class ArtifactTracker {
             this.mvt = null;
           }
         }
-        if (this.trackIdx < 0 && this.showing >= 0) {
+        const poselessShowing = this.showing >= 0 && !!this.targets.find((t) => t.targetIndex === this.showing)?.poseless;
+        if (poselessShowing && now - this.seenAt > POSELESS_LOST_MS) {
+          const lost = this.showing;
+          this.showing = -1;
+          this.current = -1;
+          this.hits = 0;
+          this.onLost?.(lost);
+        } else if (!poselessShowing && this.trackIdx < 0 && this.showing >= 0) {
           this.miss++;
           if (this.miss > 4) {
             const lost = this.showing;
@@ -157,6 +178,20 @@ export class ArtifactTracker {
       } finally {
         inputT?.dispose();
       }
+    }
+  }
+
+  /** Phát hiện một ảnh không cần vị trí: đủ số lần liên tiếp thì báo thấy. */
+  private poselessHit(idx: number, now: number) {
+    this.hits = idx === this.hitIdx ? this.hits + 1 : 1;
+    this.hitIdx = idx;
+    if (idx === this.showing) this.seenAt = now;
+    if (this.hits >= POSELESS_HITS && this.showing !== idx) {
+      this.showing = idx;
+      this.current = idx;
+      this.seenAt = now;
+      this.hasPose = false;
+      this.onFound?.(idx);
     }
   }
 

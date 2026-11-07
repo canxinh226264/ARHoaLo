@@ -32,6 +32,7 @@ export interface HudHandlers {
   arrived(): void;
   exitXr?(): void;
   replaceFloor?(): void;
+  ask?(preset?: string): void;
   guideOpen?(): void;
   guideFloorDone?(): void;
   guideExit?(): void;
@@ -59,7 +60,7 @@ export class Hud {
   private way: HTMLElement;
   private art: HTMLElement;
   private artState: { item: ArtifactCardItem | null; mode: string } = { item: null, mode: 'hidden' };
-  artHandlers: { inspect(): void; reset(): void; close(): void } | null = null;
+  artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void } | null = null;
   private handState: 'off' | 'seen' | 'hold' | 'loading' = 'off';
   private remaining = 0;
   private turn: '' | 'turnLeft' | 'turnRight' | 'turnBack' = '';
@@ -70,7 +71,10 @@ export class Hud {
     this.el.innerHTML = `
       <div class="hud__top">
         <div class="chip chip--hand" aria-live="polite">${icons.hand}<span></span></div>
-        <button class="chip" type="button" data-mode></button>
+        <div class="hud__right">
+          <button class="chip chip--ask" type="button" data-ask></button>
+          <button class="chip" type="button" data-mode></button>
+        </div>
       </div>
       <div class="wayfind" hidden></div>
       <div class="artcard" hidden></div>
@@ -88,6 +92,7 @@ export class Hud {
     this.readBtn.addEventListener('click', () => h.change({ reading: !this.s.reading }));
     this.modeChip.addEventListener('click', () => h.setMode(this.s.mode === 'indoor' ? 'outdoor' : 'indoor'));
     this.el.querySelector('[data-menu]')!.addEventListener('click', () => this.openMenu());
+    this.el.querySelector('[data-ask]')!.addEventListener('click', () => this.h.ask?.());
     root.appendChild(this.el);
     onLang(() => this.refresh());
     this.refresh();
@@ -137,20 +142,25 @@ export class Hud {
     const sub = vi ? item.titleEn : item.titleVi;
     const desc = vi ? item.descVi : item.descEn;
     const inspecting = mode === 'inspect';
+    const info = mode === 'info';
+    this.art.classList.toggle('artcard--info', info);
     this.art.innerHTML = `
       <strong>${title}</strong>
       <span class="en">${sub}</span>
       ${desc ? `<p>${desc}</p>` : ''}
-      <span class="hint">${t('artHint')}</span>
+      ${info ? '' : `<span class="hint">${t('artHint')}</span>`}
       <div class="row">
-        ${inspecting
+        <button class="btn btn--ghost" type="button" data-a="ask">${t('askMore')}</button>
+        ${info
+          ? `<button class="btn" type="button" data-a="close">${t('artClose')}</button>`
+          : inspecting
           ? `<button class="btn btn--ghost" type="button" data-a="reset">${t('artReset')}</button>
              <button class="btn" type="button" data-a="close">${t('artClose')}</button>`
           : `<button class="btn" type="button" data-a="inspect">${t('artInspect')}</button>`}
       </div>`;
     this.art.querySelectorAll<HTMLButtonElement>('[data-a]').forEach((b) =>
       b.addEventListener('click', () => {
-        const a = b.dataset.a as 'inspect' | 'reset' | 'close';
+        const a = b.dataset.a as 'inspect' | 'reset' | 'close' | 'ask';
         this.artHandlers?.[a]();
       }),
     );
@@ -265,6 +275,7 @@ export class Hud {
 
   refresh() {
     const indoor = this.s.mode === 'indoor';
+    (this.el.querySelector('[data-ask]') as HTMLElement).innerHTML = `<span aria-hidden="true">💬</span><span>${t('askChip')}</span>`;
     this.modeChip.innerHTML = `${indoor ? icons.door : icons.path}<span>${indoor ? t('modeIndoor') : this.s.mode === 'guide' ? t('modeGuide') : t('modeOutdoor')}</span>`;
     this.modeChip.setAttribute('aria-label', `${t('modeIndoor')} / ${t('modeOutdoor')}`);
     this.readBtn.setAttribute('aria-pressed', String(this.s.reading));

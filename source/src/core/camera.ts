@@ -127,6 +127,21 @@ export class CameraFeed {
     return ctx.getImageData(0, 0, w, h).data;
   }
 
+  /** Ảnh JPEG (base64, không có tiền tố data:) của phần video đang hiển thị, cạnh dài tối đa `maxSide`. */
+  captureJpeg(maxSide = 768, quality = 0.72): string | null {
+    if (!this.ready) return null;
+    const L = this.layout();
+    const sw = L.sw / L.scale, sh = L.sh / L.scale;
+    const k = Math.min(1, maxSide / Math.max(sw, sh));
+    const c = document.createElement('canvas');
+    c.width = Math.round(sw * k);
+    c.height = Math.round(sh * k);
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(this.video, L.ox / L.scale, L.oy / L.scale, sw, sh, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', quality).split(',')[1] ?? null;
+  }
+
   /** Độ sáng trung bình + tông màu từ vài pixel (gọi ~2 lần/giây). */
   private probe?: HTMLCanvasElement;
   sampleLight(): { lum: number; r: number; g: number; b: number } | null {

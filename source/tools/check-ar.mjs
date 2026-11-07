@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, fromEnu, parseRoute, fetchRoute, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -447,4 +447,95 @@ test('Guide without a route keeps the straight-line light', () => {
   assert.ok(near(g.distanceLeft, 100, 1e-6));
   const dir = g.path.at(-1).clone().sub(g.position);
   assert.ok(Math.abs(Math.atan2(dir.x, -dir.y)) < 0.05);
+});
+
+// ---------------------------------------------------------------- hỏi đáp, bản đồ nhỏ, ảnh mốc
+const askApi = await import('../../api/ask.mjs');
+function fakeRes() {
+  const r = { code: 0, body: null, headers: {} };
+  r.setHeader = (k, v) => { r.headers[k] = v; };
+  r.status = (c) => { r.code = c; return r; };
+  r.json = (b) => { r.body = b; return r; };
+  return r;
+}
+test('Ask API: builds a grounded Gemini request and validates input', () => {
+  const { question, request } = askApi.buildRequest({ question: '  Nhà vệ sinh ở đâu? ', lang: 'vi', context: 'Nhà vệ sinh: [CẦN BỔ SUNG]', history: [{ q: 'a', a: 'b' }], image: 'QUJD' });
+  assert.equal(question, 'Nhà vệ sinh ở đâu?');
+  assert.match(request.systemInstruction.parts[0].text, /Không tự bịa/);
+  assert.match(request.systemInstruction.parts[0].text, /Nhà vệ sinh: \[CẦN BỔ SUNG\]/);
+  assert.equal(request.contents.length, 3);
+  assert.equal(request.contents.at(-1).parts[1].inlineData.mimeType, 'image/jpeg');
+  // ảnh sai định dạng hoặc quá lớn bị bỏ qua, câu hỏi bị cắt ngắn
+  const bad = askApi.buildRequest({ question: 'x'.repeat(2000), image: '<script>' });
+  assert.equal(bad.question.length, 500);
+  assert.equal(bad.request.contents.at(-1).parts.length, 1);
+  assert.equal(askApi.readAnswer({ candidates: [{ content: { parts: [{ text: 'Xin ' }, { text: 'chào' }] } }] }), 'Xin chào');
+  assert.equal(askApi.readAnswer({ promptFeedback: { blockReason: 'SAFETY' } }), '');
+});
+test('Ask API: key stays on the server, errors are mapped', async () => {
+  const old = { ...process.env };
+  try {
+    delete process.env.GEMINI_API_KEY;
+    let r = fakeRes();
+    await askApi.default({ method: 'POST', headers: {}, body: { question: 'hi' } }, r);
+    assert.equal(r.code, 503);
+    process.env.GEMINI_API_KEY = 'server-key';
+    r = fakeRes();
+    await askApi.default({ method: 'GET', headers: {} }, r);
+    assert.equal(r.code, 405);
+    r = fakeRes();
+    await askApi.default({ method: 'POST', headers: { origin: 'https://evil.example' }, body: { question: 'hi' } }, r);
+    assert.equal(r.code, 403);
+    let sent = null;
+    const ok = async (url, init) => { sent = { url, init }; return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: 'Chưa có thông tin, bạn hỏi nhân viên nhé.' }] } }] }) }; };
+    r = fakeRes();
+    await askApi.default({ method: 'POST', headers: { origin: 'https://don-gio-xuan-ten.vercel.app' }, body: JSON.stringify({ question: 'Nhà vệ sinh ở đâu?', lang: 'vi', context: 'x' }) }, r, ok);
+    assert.equal(r.code, 200);
+    assert.match(r.body.answer, /nhân viên/);
+    assert.match(sent.url, /models\/gemini-3\.5-flash-lite:generateContent$/);
+    assert.equal(sent.init.headers['x-goog-api-key'], 'server-key');
+    r = fakeRes();
+    await askApi.default({ method: 'POST', headers: {}, body: { question: 'hi' } }, r, async () => ({ ok: false, status: 429 }));
+    assert.equal(r.code, 429);
+    r = fakeRes();
+    await askApi.default({ method: 'POST', headers: {}, body: { question: '   ' } }, r, ok);
+    assert.equal(r.code, 400);
+  } finally {
+    process.env = old;
+  }
+});
+test('Ask client: context carries only exhibition data and the current item', async () => {
+  const items = [{ titleVi: 'Panel F · Lời giới thiệu', titleEn: 'Panel F', descVi: '[CẦN BỔ SUNG] x', descEn: '' }];
+  const ctx = buildContext({ items, current: items[0], status: 'Khách đang ở trong hành lang trưng bày.' });
+  assert.match(ctx, /Đón Gió Xuân/);
+  assert.match(ctx, /Nhà vệ sinh: \[CẦN BỔ SUNG\]/);
+  assert.match(ctx, /Khách đang xem: Panel F/);
+  let body;
+  const r = await askGuide({ question: 'Q', lang: 'vi', context: ctx, history: [], image: null }, async (url, init) => { body = JSON.parse(init.body); assert.equal(url, './api/ask'); return { ok: true, status: 200, json: async () => ({ answer: 'A' }) }; });
+  assert.deepEqual(r, { answer: 'A' });
+  assert.equal(body.image, undefined);
+  assert.deepEqual(await askGuide({ question: 'Q', lang: 'vi', context: '', history: [] }, async () => ({ ok: false, status: 503 })), { error: 'no-key' });
+  assert.deepEqual(await askGuide({ question: 'Q', lang: 'vi', context: '', history: [] }, async () => ({ ok: false, status: 429 })), { error: 'busy' });
+});
+test('Mini map: Web Mercator pixels and scale', () => {
+  const a = mercator({ lat: 0, lng: 0 }, 0);
+  assert.ok(near(a.x, 128) && near(a.y, 128));
+  const g = mercator({ lat: DESTINATION.lat, lng: DESTINATION.lng });
+  const g2 = mercator({ lat: DESTINATION.lat + 100 / 111195, lng: DESTINATION.lng });
+  const mpp = metersPerPixel(DESTINATION.lat);
+  assert.ok(near((g.y - g2.y) * mpp, 100, 1.5), String((g.y - g2.y) * mpp)); // Bắc = lên trên
+  assert.ok(near(mpp, 1.115, 0.01), String(mpp));
+});
+test('Image targets: unique indices, known kinds, image files present', async () => {
+  const fs = await import('node:fs');
+  const cfg = JSON.parse(fs.readFileSync('src/config/artifacts.json', 'utf8'));
+  const idx = cfg.items.map((i) => i.targetIndex).sort((a, b) => a - b);
+  assert.deepEqual(idx, idx.map((_, i) => i));
+  for (const it of cfg.items) {
+    assert.ok(['model', 'info', 'enter'].includes(it.kind), it.id);
+    assert.ok(fs.existsSync('../' + it.image), it.image);
+    if (it.kind === 'model') assert.ok(fs.existsSync('../' + it.model), it.model);
+  }
+  assert.ok(cfg.items.some((i) => i.kind === 'enter'));
+  assert.ok(fs.statSync('../' + cfg.targets).size > 0);
 });

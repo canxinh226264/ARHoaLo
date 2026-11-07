@@ -216,6 +216,21 @@ export class GuideScene {
     return !!this.route;
   }
 
+  /** Vị trí người dùng, mét Đông/Bắc so với điểm đến. */
+  get userEnu() {
+    return { e: this.e, n: this.n };
+  }
+
+  /** Tuyến theo phố (mét Đông/Bắc so với điểm đến), null nếu chưa có. */
+  get routeEnu(): { e: number; n: number }[] | null {
+    return this.route ? this.route.map((p) => ({ e: p.x, n: p.y })) : null;
+  }
+
+  /** Hướng camera theo la bàn (radian, chiều kim đồng hồ từ Bắc). */
+  heading(cam: THREE.Camera) {
+    return wrapAngle(viewAngle(cam.quaternion) - this.north.angle);
+  }
+
   /** Kết quả xin tuyến (null = không lấy được, đi theo hướng chim bay). */
   setRoute(points: { e: number; n: number }[] | null) {
     if (points && points.length >= 2) {

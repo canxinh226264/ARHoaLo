@@ -24,6 +24,9 @@ import { GuideScene, DESTINATION } from './scenes/guide-scene';
 import { GeoTracker } from './core/geo-tracker';
 import { fromEnu } from './core/geo';
 import { fetchRoute, routingKey } from './core/route-service';
+import { AskPanel } from './ui/ask-panel';
+import { MiniMap } from './ui/minimap';
+import type { AskItem } from './core/ask-service';
 import { room } from './config/room';
 import artifactsCfg from './config/artifacts.json';
 import { ArtifactTracker } from './tracking/artifact-tracker';
@@ -75,16 +78,36 @@ const floorDist = new Float32Array(GRID_W * GRID_H);
 indoor.petals.sources.push(hand);
 
 // ---------------------------------------------------------------- hiện vật 3D trên ảnh in
-const artifactItems = artifactsCfg.items as unknown as ArtifactItem[];
+// mỗi ảnh mốc là một trong ba loại: model = hiện vật 3D, info = thẻ văn bản, enter = ảnh cổng triển lãm
+type TargetItem = ArtifactItem & { kind?: 'model' | 'info' | 'enter' };
+const targetItems = artifactsCfg.items as unknown as TargetItem[];
+const artifactItems = targetItems.filter((i) => (i.kind ?? 'model') === 'model');
 const artTracker = new ArtifactTracker(
   feed,
-  artifactItems.map((i) => ({ targetIndex: i.targetIndex, physicalWidth: i.physicalWidth })),
+  targetItems.map((i) => ({ targetIndex: i.targetIndex, physicalWidth: i.physicalWidth, poseless: i.kind === 'info' || i.kind === 'enter' })),
   artifactsCfg.targets,
   room.camera.longEdgeFovDeg,
 );
 const artViewer = new ArtifactViewer(R.scene, R.camera, R.gl, artifactItems);
+/** Thẻ văn bản đang hiện (panel), null nếu không có. */
+let infoItem: TargetItem | null = null;
 artTracker.onFound = (i) => {
-  if (settings.mode === 'indoor') artViewer.show(i);
+  const item = targetItems.find((x) => x.targetIndex === i);
+  if (!item) return;
+  if (item.kind === 'enter') {
+    if (settings.mode !== 'indoor') enterExhibition();
+    return;
+  }
+  if (settings.mode !== 'indoor') return;
+  if (item.kind === 'info') {
+    if (artViewer.visible) return; // đang xem hiện vật 3D thì không đè thẻ
+    infoItem = item;
+    hud?.setArtifact(item, 'info');
+    if (navigator.vibrate) navigator.vibrate(8);
+  } else {
+    infoItem = null;
+    artViewer.show(i);
+  }
 };
 artTracker.onLost = () => {
   R.camera.updateMatrixWorld();
@@ -149,7 +172,16 @@ async function onStart() {
   hud.artHandlers = {
     inspect: () => artViewer.inspect(),
     reset: () => artViewer.resetView(),
+    ask: () => {
+      const cur = currentItem();
+      if (cur) askPanel.open(t('askAbout')(getLang() === 'vi' ? cur.titleVi : cur.titleEn));
+    },
     close: () => {
+      if (infoItem) {
+        infoItem = null;
+        hud?.setArtifact(null, 'hidden');
+        return;
+      }
       artViewer.close();
       // vẫn đang thấy ảnh → hiện lại trên ảnh
       if (artTracker.current >= 0) setTimeout(() => artViewer.show(artTracker.current), 350);
@@ -199,8 +231,8 @@ async function startCameraMode() {
     hand.init().then(() => {
       hud?.setHand(hand.active ? 'seen' : 'off');
       if (hand.status === 'error') toast(ui, t('errHand'), 4000, true);
-      // nhận diện ảnh hiện vật khởi động sau tay để không giành GPU lúc đầu
-      if (settings.mode === 'indoor') startArtifacts();
+      // nhận diện ảnh khởi động sau tay để không giành GPU lúc đầu; chạy cả ngoài cổng để nhận ảnh cổng
+      startArtifacts();
     });
   }
 }
@@ -255,6 +287,7 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
     if (m !== 'guide') {
       guide.stop();
       geo.stop();
+      minimap.setVisible(false);
     }
     occluder.mesh.visible = false;
     if (m === 'indoor') {
@@ -264,8 +297,14 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
       sensors.recenter(0); // nhìn vào trong hành lang
       indoor.petals.clear();
     } else {
-      artTracker.paused = true;
+      // vẫn nhận ảnh để thấy cổng triển lãm, nhưng không hiện hiện vật/thẻ
+      artTracker.paused = false;
+      if (hand.status === 'ready') startArtifacts();
       if (artViewer.visible) artViewer.close();
+      if (infoItem) {
+        infoItem = null;
+        hud?.setArtifact(null, 'hidden');
+      }
       if (m === 'outdoor') {
         outdoor.progress = 0;
         sensors.recenter(-Math.PI / 2); // nhìn vào pano P
@@ -351,7 +390,34 @@ const handlers = {
   guideExit() {
     setMode('indoor', true);
   },
+  ask: (preset?: string) => askPanel.open(preset),
 };
+
+/** Camera thấy ảnh cổng triển lãm: tắt dẫn đường, chuyển sang hoa đào rơi. */
+function enterExhibition() {
+  setMode('indoor', true);
+  toast(ui, t('enterWelcome'), 4000);
+  if (navigator.vibrate) navigator.vibrate([10, 60, 10]);
+}
+
+function currentItem(): AskItem | null {
+  if (infoItem) return infoItem;
+  return artViewer.visible ? artViewer.active : null;
+}
+
+const askPanel = new AskPanel(ui, {
+  items: targetItems.filter((i) => i.kind !== 'enter'),
+  current: currentItem,
+  status: () => {
+    if (settings.mode === 'guide' && guide.hasFix) return `Khách đang được dẫn đường tới ${DESTINATION.nameVi}, còn khoảng ${Math.round(guide.distanceLeft)} m.`;
+    if (settings.mode === 'indoor') return 'Khách đang ở trong hành lang trưng bày.';
+    return 'Khách đang ở ngoài cổng di tích.';
+  },
+  photo: () => (hasCamera ? feed.captureJpeg() : null),
+  speak: () => settings.sound,
+});
+const minimap = new MiniMap(ui);
+let minimapAt = 0;
 
 /** Mở biểu mẫu dẫn đường; GPS bắt đầu ngay trong cú bấm "Bắt đầu". */
 function guideOpen() {
@@ -613,8 +679,22 @@ function tick(now: number, frame?: XRFrame) {
     }
   } else if (settings.mode === 'guide') {
     guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt }, canScan && floorVision.ready ? floorVision : null);
+    const showMap = guide.hasFix && (guide.phase === 'walk' || guide.phase === 'locating' || guide.phase === 'arrived');
+    minimap.setVisible(showMap);
+    if (showMap && now - minimapAt > 100) {
+      minimapAt = now;
+      const toLatLng = (p: { e: number; n: number }) => fromEnu(p.e, p.n, DESTINATION.lat, DESTINATION.lng);
+      minimap.update({
+        me: toLatLng(guide.userEnu),
+        heading: guide.north.ready ? guide.heading(R.camera) : 0,
+        route: guide.routeEnu?.map(toLatLng) ?? null,
+        dest: DESTINATION,
+        accuracy: guide.accuracy,
+      });
+    }
     hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
   } else {
+    minimap.setVisible(false);
     outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
     hud?.setRemaining(outdoor.remaining);
     hud?.setTurn(outdoor.turnHint(camPosRoom, fwdRoom));
@@ -650,4 +730,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap };

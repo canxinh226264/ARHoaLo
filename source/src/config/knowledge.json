@@ -1,0 +1,16 @@
+{
+ "_doc": "Thông tin cho trợ lý hỏi đáp (Gemini). Trợ lý CHỈ trả lời dựa trên nội dung ở đây và trong artifacts.json; mục ghi [CẦN BỔ SUNG] sẽ được trả lời là chưa có thông tin. BTC sửa trực tiếp file này rồi build lại.",
+ "factsVi": [
+  "Trưng bày chuyên đề \"Đón Gió Xuân – Welcoming The Spring Breeze\" tại Di tích Nhà tù Hỏa Lò, Hà Nội.",
+  "Trưng bày nhân kỷ niệm 97 năm ngày thành lập Đảng và chào xuân Đinh Mùi 2027.",
+  "Trưng bày nằm trong một hành lang dài khoảng 26 m. Khi đi vào, tường cam bên phải có các panel F, A1–A4, C1–C9 và D11; tường đá bên trái có các panel B.",
+  "Cuối hành lang (khu D) có bàn D14 và một cây đào thật; panel D11 là bảng Tết Nguyên Đán 1953.",
+  "Trong ứng dụng: chiếu camera vào panel để xem thông tin, vào ảnh chậu tôn hoặc thùng gỗ để xem hiện vật 3D; ngẩng lên để thấy cành đào, khum tay để hứng cánh hoa.",
+  "Dẫn đường thử nghiệm trong ứng dụng đưa khách tới Cổng Parabol, Đại học Bách khoa Hà Nội (đường Giải Phóng).",
+  "Nhà vệ sinh: [CẦN BỔ SUNG]",
+  "Giờ mở cửa: [CẦN BỔ SUNG]",
+  "Giá vé: [CẦN BỔ SUNG]",
+  "Lối ra, lối thoát hiểm: [CẦN BỔ SUNG]",
+  "Gửi đồ, wifi, nơi nghỉ chân: [CẦN BỔ SUNG]"
+ ]
+}
