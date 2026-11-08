@@ -28,6 +28,16 @@ type Recognition = {
   stop(): void;
 };
 
+/**
+ * Bộ đọc to của trình duyệt, null nếu không có. Trình duyệt trong app (Zalo, Facebook, Messenger…)
+ * trên Android không có speechSynthesis: gọi thẳng tên này sẽ lỗi ReferenceError và chặn mở khung chat.
+ */
+function tts(): SpeechSynthesis | null {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined'
+    ? window.speechSynthesis
+    : null;
+}
+
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export class AskPanel {
@@ -64,7 +74,7 @@ export class AskPanel {
     this.rec?.stop();
     this.back?.remove();
     this.back = null;
-    speechSynthesis?.cancel?.();
+    tts()?.cancel();
   }
 
   private suggestions(): string[] {
@@ -84,7 +94,7 @@ export class AskPanel {
     if (!sh) return;
     const cur = this.deps.current();
     const vi = getLang() === 'vi';
-    const canSpeak = typeof speechSynthesis !== 'undefined';
+    const canSpeak = !!tts();
     const SR = (window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition });
     const canMic = !!(SR.SpeechRecognition || SR.webkitSpeechRecognition);
     sh.innerHTML = `
@@ -150,13 +160,14 @@ export class AskPanel {
   }
 
   private say(text: string) {
-    if (typeof speechSynthesis === 'undefined') return;
-    speechSynthesis.cancel();
+    const synth = tts();
+    if (!synth) return;
+    synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = getLang() === 'vi' ? 'vi-VN' : 'en-US';
-    const v = speechSynthesis.getVoices().find((x) => x.lang?.toLowerCase().startsWith(u.lang.slice(0, 2)));
+    const v = synth.getVoices().find((x) => x.lang?.toLowerCase().startsWith(u.lang.slice(0, 2)));
     if (v) u.voice = v;
-    speechSynthesis.speak(u);
+    synth.speak(u);
   }
 
   private listen() {
