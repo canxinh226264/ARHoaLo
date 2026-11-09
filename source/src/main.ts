@@ -62,11 +62,11 @@ geo.onFix = (f: GeoFix) => guide.gpsFix(f);
 // tuyến đi bộ theo phố; lỗi thì dải sáng tạm theo hướng chim bay
 guide.onNeedRoute = (e, n) => {
   const from = fromEnu(e, n, DESTINATION.lat, DESTINATION.lng);
+  const firstTry = guide.routeState === 'loading';
   fetchRoute(from, DESTINATION).then((r) => {
     if (settings.mode === 'indoor') return;
-    const first = !guide.hasRoute;
     guide.setRoute(r?.points ?? null);
-    if (!r && first) toast(ui, routingKey() ? t('guideRouteFail') : t('guideNoKey'), 6000, true);
+    if (!r && firstTry) toast(ui, routingKey() ? t('guideRouteFail') : t('guideNoKey'), 6000, true);
   });
 };
 geo.onError = (e) => {

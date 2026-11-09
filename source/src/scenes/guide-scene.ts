@@ -52,6 +52,15 @@ const RESAMPLE_TURN = 0.15; // rad: xoay máy quá góc này thì vẽ lại đo
 const STEP_VARIANCE = 0.15; // m² sai số thêm sau mỗi bước chân
 /** Sai số tăng theo thời gian kể cả khi không đếm được bước (đi chậm, bước nhỏ), để GPS mới luôn được tính. */
 const DRIFT_VARIANCE = 4; // m²/giây
+/**
+ * `accuracy` của GPS là sai số so với vị trí thật, còn giữa hai lần đo liên tiếp sai lệch nhỏ hơn
+ * nhiều. Tính theo một nửa giá trị đó để vị trí bám sát GPS mà không rung.
+ */
+const GPS_TRUST = 0.5;
+const POSITION_SMOOTH = 4; // 1/giây, dịch dần tới vị trí mới để camera và dải sáng không giật
+/** GPS đầu tiên thường chỉ là vị trí thô theo trạm sóng: đợi chính xác hơn rồi mới xin tuyến. */
+const ROUTE_MIN_ACCURACY = 40; // m
+const ROUTE_MAX_WAIT = 8; // giây
 const COMPASS_FRESH = 1000; // ms
 /** Dải sáng nối thẳng tới điểm trên tuyến cách chừng này (m), xa hơn thì đi đúng theo tuyến. */
 const ROUTE_CARROT = 6;
@@ -91,10 +100,14 @@ export class GuideScene {
   /** Tuyến theo phố, mét Đông/Bắc so với điểm đến (x = Đông, y = Bắc). */
   private route: THREE.Vector2[] | null = null;
   private routeAskedAt = -Infinity;
+  private routePending = false;
   private offRouteFor = 0;
+  private firstFixAt = 0;
 
   private e = 0; // mét Đông/Bắc so với điểm đến
   private n = 0;
+  private shownE = 0; // vị trí đang hiển thị, tiến dần tới (e, n)
+  private shownN = 0;
   private variance = 0;
   private originE = 0; // gốc cảnh = chỗ có GPS đầu tiên, để toạ độ cảnh nhỏ
   private originN = 0;
@@ -259,8 +272,11 @@ export class GuideScene {
 
   /** Kết quả xin tuyến (null = không lấy được, đi theo hướng chim bay). */
   setRoute(points: { e: number; n: number }[] | null) {
+    this.routePending = false;
     if (points && points.length >= 2) {
       this.route = points.map((p) => new THREE.Vector2(p.e, p.n));
+      // dịch vụ chỉ dẫn tới điểm đường gần nhất: nối thêm đoạn cuối tới đúng toạ độ đích (gốc ENU)
+      if (this.route[this.route.length - 1].length() > 1) this.route.push(new THREE.Vector2(0, 0));
       this.routeState = 'ok';
     } else if (!this.route) {
       this.routeState = 'failed';
@@ -317,19 +333,24 @@ export class GuideScene {
     return { carrot: toWorld(carrot), rest };
   }
 
-  /** Xin tuyến khi chưa có, hoặc khi đã đi lệch tuyến đủ lâu. */
+  /** Xin tuyến khi chưa có, khi lần trước lỗi, hoặc khi đã đi lệch tuyến đủ lâu. */
   private checkRoute(dt: number) {
-    if (!this.hasFix || !this.onNeedRoute) return;
+    if (!this.hasFix || !this.onNeedRoute || this.routePending) return;
     const canAsk = this.t - this.routeAskedAt >= routing.minSecondsBetweenRequests;
-    let ask = this.routeState === 'none';
+    let ask: boolean;
     if (this.route) {
       const limit = Math.max(routing.offRouteMeters, (Number.isFinite(this.accuracy) ? this.accuracy : 0) * 1.5);
       this.offRouteFor = this.projectOnRoute().off > limit ? this.offRouteFor + dt : 0;
       ask = this.offRouteFor >= routing.rerouteAfterSeconds && canAsk;
+    } else if (this.routeState === 'failed') {
+      ask = canAsk;
+    } else {
+      ask = this.accuracy <= ROUTE_MIN_ACCURACY || this.t - this.firstFixAt >= ROUTE_MAX_WAIT;
     }
     if (!ask) return;
     this.routeAskedAt = this.t;
-    if (!this.route) this.routeState = 'loading';
+    this.routePending = true;
+    if (this.routeState === 'none') this.routeState = 'loading';
     this.offRouteFor = 0;
     this.onNeedRoute(this.e, this.n);
   }
@@ -349,19 +370,21 @@ export class GuideScene {
     this.route = null;
     this.routeState = 'none';
     this.routeAskedAt = -Infinity;
+    this.routePending = false;
     this.accuracy = NaN;
     this.north.reset();
   }
 
   /** Một lần đo GPS (mét Đông/Bắc so với điểm đến). */
   gpsFix(f: GeoFix) {
-    const r2 = f.accuracy * f.accuracy;
+    const r2 = (f.accuracy * GPS_TRUST) ** 2;
     if (!this.hasFix) {
-      this.e = f.e;
-      this.n = f.n;
+      this.e = this.shownE = f.e;
+      this.n = this.shownN = f.n;
       this.originE = f.e;
       this.originN = f.n;
       this.variance = r2;
+      this.firstFixAt = this.t;
       this.hasFix = true;
     } else {
       // trộn kiểu Kalman: GPS kém thì tin bước chân hơn và ngược lại
@@ -395,7 +418,10 @@ export class GuideScene {
       if (Math.abs(_f.y) < 0.85) this.north.add(groundAngle(cam.quaternion), compass.value, dt);
     }
     const north = this.north.angle;
-    enuToWorld(this.e - this.originE, this.n - this.originN, north, this.position);
+    const ease = 1 - Math.exp(-dt * POSITION_SMOOTH);
+    this.shownE += (this.e - this.shownE) * ease;
+    this.shownN += (this.n - this.shownN) * ease;
+    enuToWorld(this.shownE - this.originE, this.shownN - this.originN, north, this.position);
     enuToWorld(-this.originE, -this.originN, north, this.target);
 
     if (this.phase === 'locating' && this.hasFix && this.north.ready) this.phase = 'walk';

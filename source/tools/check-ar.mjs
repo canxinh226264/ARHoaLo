@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/geo-tracker'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, GeoTracker, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -344,6 +344,7 @@ test('Route: reads OpenRouteService GeoJSON and falls back between profiles', as
   const fake = async (url, init) => {
     seen.push(url.split('/').slice(-2)[0]);
     assert.equal(init.headers.Authorization, 'k');
+    assert.equal(JSON.parse(init.body).preference, 'shortest');
     if (url.includes('foot-walking')) return { ok: false, json: async () => ({}) };
     return { ok: true, json: async () => json };
   };
@@ -373,14 +374,141 @@ test('Guide follows the street route instead of the straight line, and re-routes
   // vẫn trên tuyến: không xin lại
   tick(g, cam, 0, 100);
   assert.equal(asks.length, 1);
-  // GPS báo đã lệch 60 m khỏi tuyến, kéo dài quá 5 giây → xin tuyến mới (cách lần trước ≥ 20 giây)
-  for (let i = 0; i < 2; i++) { g.gpsFix({ e: -60, n: -50, accuracy: 5 }); tick(g, cam, 0, 20); }
-  assert.equal(asks.length, 1, 'chưa lệch đủ lâu / chưa đủ 20 giây từ lần trước');
-  for (let i = 0; i < 4; i++) { g.gpsFix({ e: -60, n: -50, accuracy: 5 }); tick(g, cam, 0, 20); }
+  // GPS báo đã lệch 60 m khỏi tuyến: chưa đủ 3 giây thì chưa xin, quá 3 giây thì xin tuyến mới
+  g.gpsFix({ e: -60, n: -50, accuracy: 5 });
+  tick(g, cam, 0, 20);
+  assert.equal(asks.length, 1, 'chưa lệch đủ lâu');
+  g.gpsFix({ e: -60, n: -50, accuracy: 5 });
+  tick(g, cam, 0, 20);
   assert.equal(asks.length, 2, JSON.stringify(asks));
+  // yêu cầu đang chờ thì không gửi chồng
+  tick(g, cam, 0, 200);
+  assert.equal(asks.length, 2);
   // không lấy được tuyến mới: giữ tuyến cũ
   g.setRoute(null);
   assert.equal(g.routeState, 'ok');
+});
+test('Route is extended to the exact destination when the service stops at the road', () => {
+  const { g, cam } = guideRig();
+  g.onNeedRoute = () => {};
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 5 });
+  tick(g, cam, 0, 3);
+  g.setRoute([{ e: 0, n: -100 }, { e: 30, n: -100 }, { e: 30, n: -20 }]);
+  tick(g, cam, 0, 2);
+  const last = g.routeEnu.at(-1);
+  assert.ok(near(last.e, 0, 1e-9) && near(last.n, 0, 1e-9), JSON.stringify(last));
+  assert.ok(near(g.distanceLeft, 30 + 80 + Math.hypot(30, 20), 1e-6), String(g.distanceLeft));
+});
+test('Route request waits for a usable GPS fix, but not forever', () => {
+  const { g, cam } = guideRig();
+  let asks = 0;
+  g.onNeedRoute = () => asks++;
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 800 }); // vị trí thô theo trạm sóng
+  tick(g, cam, 0, 10);
+  assert.equal(asks, 0);
+  g.gpsFix({ e: 0, n: -100, accuracy: 10 });
+  tick(g, cam, 0, 1);
+  assert.equal(asks, 1);
+  // GPS mãi không tốt hơn: sau 8 giây vẫn xin tuyến
+  const { g: g2, cam: cam2 } = guideRig();
+  let asks2 = 0;
+  g2.onNeedRoute = () => asks2++;
+  g2.start({ floorNow: 1, floorTo: 1 });
+  g2.gpsFix({ e: 0, n: -100, accuracy: 800 });
+  tick(g2, cam2, 0, 75);
+  assert.equal(asks2, 0);
+  tick(g2, cam2, 0, 10);
+  assert.equal(asks2, 1);
+});
+test('A failed route request is retried, without going back to the loading state', () => {
+  const { g, cam } = guideRig();
+  let asks = 0;
+  g.onNeedRoute = () => { asks++; g.setRoute(null); };
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 5 });
+  tick(g, cam, 0, 5);
+  assert.equal(asks, 1);
+  assert.equal(g.routeState, 'failed');
+  tick(g, cam, 0, 90);
+  assert.equal(asks, 1, 'chưa đủ 10 giây');
+  tick(g, cam, 0, 20);
+  assert.equal(asks, 2);
+  assert.equal(g.routeState, 'failed');
+  g.onNeedRoute = () => g.setRoute([{ e: 0, n: -100 }, { e: 0, n: 0 }]);
+  tick(g, cam, 0, 110);
+  assert.equal(g.routeState, 'ok');
+});
+test('GPS keeps updating: asks again when stale, reopens after hiding, ignores temporary errors', () => {
+  const calls = { watch: 0, clear: 0, poll: [] };
+  let watchOk, watchErr, everySecond, onVisible;
+  const geolocation = {
+    watchPosition(ok, err, opts) { calls.watch++; watchOk = ok; watchErr = err; assert.equal(opts.maximumAge, 0); return calls.watch; },
+    clearWatch() { calls.clear++; },
+    getCurrentPosition(ok) { calls.poll.push(ok); },
+  };
+  const savedWindow = globalThis.window, savedDocument = globalThis.document;
+  const savedNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  globalThis.window = { isSecureContext: true, setInterval: (f) => { everySecond = f; return 1; }, addEventListener() {}, removeEventListener() {} };
+  globalThis.document = { hidden: false, addEventListener: (_, f) => { onVisible = f; }, removeEventListener() {} };
+  Object.defineProperty(globalThis, 'navigator', { value: { geolocation }, configurable: true });
+  try {
+    const fixes = [], errors = [];
+    const g = new GeoTracker(DESTINATION.lat, DESTINATION.lng);
+    g.onFix = (f) => fixes.push(f);
+    g.onError = (e) => errors.push(e);
+    g.start();
+    everySecond();
+    assert.equal(calls.poll.length, 0, 'chưa có vị trí đầu tiên thì không hỏi thêm');
+    watchErr({ code: 3, PERMISSION_DENIED: 1 });
+    assert.deepEqual(errors, ['unavailable']);
+    const pos = { coords: { latitude: DESTINATION.lat, longitude: DESTINATION.lng, accuracy: 7 } };
+    watchOk(pos);
+    assert.equal(fixes.length, 1);
+    watchErr({ code: 3, PERMISSION_DENIED: 1 });
+    assert.equal(errors.length, 1, 'mất tín hiệu tạm thời không báo lỗi lại');
+    watchErr({ code: 1, PERMISSION_DENIED: 1 });
+    assert.deepEqual(errors, ['unavailable', 'denied']);
+    everySecond();
+    assert.equal(calls.poll.length, 0, 'vị trí còn mới');
+    g.fixAt = performance.now() - 5000;
+    everySecond();
+    everySecond();
+    assert.equal(calls.poll.length, 1, 'mỗi lúc chỉ hỏi một lần');
+    calls.poll[0](pos);
+    assert.equal(fixes.length, 2);
+    onVisible();
+    assert.equal(calls.watch, 2, 'mở lại việc theo dõi khi quay lại app');
+    assert.equal(calls.clear, 1);
+    g.stop();
+  } finally {
+    if (savedWindow === undefined) delete globalThis.window; else globalThis.window = savedWindow;
+    if (savedDocument === undefined) delete globalThis.document; else globalThis.document = savedDocument;
+    if (savedNavigator) Object.defineProperty(globalThis, 'navigator', savedNavigator); else delete globalThis.navigator;
+  }
+});
+test('Position follows GPS closely and glides to each new fix', () => {
+  const { g, cam } = guideRig();
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 0, n: -100, accuracy: 10 });
+  tick(g, cam, 0, 10);
+  // đi về Bắc 1,4 m/giây với GPS sai số 10 m, không đếm được bước chân: vẫn không tụt lại quá xa
+  let trueN = -100;
+  for (let s = 0; s < 30; s++) {
+    trueN += 1.4;
+    g.gpsFix({ e: 0, n: trueN, accuracy: 10 });
+    tick(g, cam, 0, 10);
+  }
+  assert.ok(Math.abs(g.userEnu.n - trueN) < 4, `lệch ${g.userEnu.n - trueN} m`);
+  // GPS nhảy: số liệu đổi ngay, còn vị trí hiển thị đi dần, không giật
+  const before = g.position.clone();
+  g.gpsFix({ e: 12, n: trueN, accuracy: 5 });
+  g.update(0.016, cam, { value: 0, at: 1000 }, 1000);
+  const moved = g.position.distanceTo(before);
+  assert.ok(moved < 1.5, `giật ${moved} m`);
+  tick(g, cam, 0, 30);
+  assert.ok(near(g.position.x, g.userEnu.e - 0, 1), `${g.position.x} / ${g.userEnu.e}`);
 });
 test('Guide without a route keeps the straight-line light', () => {
   const { g, cam } = guideRig();

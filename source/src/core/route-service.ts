@@ -3,7 +3,7 @@ import routing from '../config/routing.json';
 
 /**
  * Lấy tuyến đường đi bộ theo phố từ OpenRouteService (dữ liệu OpenStreetMap).
- * Chỉ gọi khi bắt đầu dẫn đường hoặc khi đi lệch tuyến, nên mỗi lượt dùng tốn vài lần gọi.
+ * Chỉ gọi khi bắt đầu dẫn đường, khi đi lệch tuyến hoặc khi lần trước lỗi, nên mỗi lượt dùng tốn vài lần gọi.
  * Key nằm trong bản build gửi tới trình duyệt (dịch vụ gọi thẳng từ điện thoại), nên chỉ
  * dùng key miễn phí; ai lấy được key cũng chỉ làm hết hạn mức ngày của nó.
  */
@@ -49,7 +49,7 @@ export async function fetchRoute(from: LatLng, to: LatLng, key = routingKey(), f
       const res = await fetchImpl(`${routing.url}/${profile}/geojson`, {
         method: 'POST',
         headers: { Authorization: key, 'Content-Type': 'application/json', Accept: 'application/geo+json, application/json' },
-        body: JSON.stringify({ coordinates: [[from.lng, from.lat], [to.lng, to.lat]], instructions: false }),
+        body: JSON.stringify({ coordinates: [[from.lng, from.lat], [to.lng, to.lat]], preference: routing.preference, instructions: false }),
         signal: ctrl.signal,
       });
       if (!res.ok) continue;
