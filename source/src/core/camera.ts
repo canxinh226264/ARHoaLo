@@ -105,15 +105,17 @@ export class CameraFeed {
   }
 
   /** Ảnh thu nhỏ w × h của đúng phần video đang hiển thị, ô (0,0) ở góc trên trái màn hình. */
-  private grid?: HTMLCanvasElement;
+  private grids = new Map<number, HTMLCanvasElement>();
   sampleGrid(w: number, h: number): Uint8ClampedArray | null {
     if (!this.ready) return null;
-    if (!this.grid) {
-      this.grid = document.createElement('canvas');
-      this.grid.width = w;
-      this.grid.height = h;
+    let grid = this.grids.get(w * 65536 + h);
+    if (!grid) {
+      grid = document.createElement('canvas');
+      grid.width = w;
+      grid.height = h;
+      this.grids.set(w * 65536 + h, grid);
     }
-    const ctx = this.grid.getContext('2d', { willReadFrequently: true });
+    const ctx = grid.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     const L = this.layout();
     ctx.imageSmoothingQuality = 'high';

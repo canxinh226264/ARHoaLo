@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { GuidePlanner } from '../core/guide-planner';
 import { NorthEstimate, enuToWorld, groundAngle, worldToEnu, wrapAngle } from '../core/geo';
 import type { GeoFix } from '../core/geo-tracker';
 import { room } from '../config/room';
@@ -11,9 +10,10 @@ import routing from '../config/routing.json';
  * Dải sáng dẫn đường tới một điểm cố định (config/destination.json: cổng Parabol).
  *  - Vị trí: GPS, giữa hai lần GPS thì cộng bước chân; trộn hai nguồn theo độ tin cậy.
  *  - Hướng: la bàn cho biết hướng Bắc trong cảnh (cảm biến xoay của web không có hướng Bắc).
- *  - Tuyến: đi theo đường phố lấy từ OpenRouteService (onNeedRoute → setRoute). Ở gần thì
- *    dải sáng lượn quanh vật cản thấy được trên camera rồi nhập lại tuyến; lệch tuyến lâu thì
- *    xin tuyến mới. Không lấy được tuyến thì đi theo hướng chim bay.
+ *  - Tuyến: đi theo đường phố lấy từ OpenRouteService (onNeedRoute → setRoute); lệch tuyến lâu
+ *    thì xin tuyến mới. Không lấy được tuyến thì đi theo hướng chim bay.
+ *  - Dải sáng chỉ phụ thuộc vị trí và hướng thật, không né vật cản trên camera: đúng hướng
+ *    quan trọng hơn, kể cả khi đoạn đường đó xuyên qua tường.
  *  - Đường nằm sau lưng hay ngoài khung hình: dải sáng bắt đầu trước mặt rồi vòng ra phía đó.
  *  - Khác tầng: chỉ nhắc đi cầu thang. Web không đo được tầng nên người dùng tự xác nhận.
  */
@@ -31,13 +31,8 @@ const POINTS = 96;
 const RANGE = 12; // m, độ dài dải sáng hiển thị
 const START_GAP = 0.35; // m, không vẽ sát chân
 const WIDTH = 0.3; // m, nửa bề ngang gồm quầng sáng
-const OBSERVE_EVERY = 0.1; // giây
 const PLAN_EVERY = 0.33; // giây
 const SMOOTH = 6; // 1/giây
-const MIN_ON_FLOOR = 0.12;
-/** Mặt nạ sàn chỉ có giá trị ở gần; xa hơn thì vẽ mờ thay vì ẩn hẳn. */
-const MASK_RANGE = 4.5; // m
-const BEYOND_MASK = 0.35;
 /** Dải sáng mờ dần theo khoảng cách để đoạn xa không chói, nhất là khi chạy tới đường chân trời. */
 const FADE_FROM = 4; // m
 const FADE_TO = 12; // m
@@ -51,8 +46,6 @@ const LEAD_NEAR = 1.0; // m, điểm đầu (mép dưới khung hình)
 const LEAD_FROM = 2.4; // m, chỗ bắt đầu bẻ cong
 const LEAD_TO = 1.4; // m, bán kính cuối vòng
 const LEAD_TAIL = 6; // m, độ dài phần đường thật vẽ tiếp sau đoạn vòng
-/** Đoạn vòng là chỉ dẫn quay người nên luôn hiện rõ, kể cả khi đè lên chân người cầm máy. */
-const LEAD_MIN_ALPHA = 0.65;
 const LEAD_JOIN = 1.6; // m, đoạn vòng nối vào đường tại điểm cách người dùng chừng này
 const LEAD_STEPS = 18;
 const RESAMPLE_TURN = 0.15; // rad: xoay máy quá góc này thì vẽ lại đoạn vòng
@@ -60,14 +53,13 @@ const STEP_VARIANCE = 0.15; // m² sai số thêm sau mỗi bước chân
 /** Sai số tăng theo thời gian kể cả khi không đếm được bước (đi chậm, bước nhỏ), để GPS mới luôn được tính. */
 const DRIFT_VARIANCE = 4; // m²/giây
 const COMPASS_FRESH = 1000; // ms
-const REMAP_NORTH = 0.25; // rad: hướng Bắc đổi quá mức này thì bỏ bản đồ vật cản cũ
-/** Dải sáng né vật cản tới điểm trên tuyến cách chừng này (m), xa hơn thì đi đúng theo tuyến. */
+/** Dải sáng nối thẳng tới điểm trên tuyến cách chừng này (m), xa hơn thì đi đúng theo tuyến. */
 const ROUTE_CARROT = 6;
 /** Độ dài phần tuyến nối thêm sau điểm đó (m), đủ để thấy chỗ rẽ phía trước. */
 const ROUTE_AHEAD = 30;
+const SPARKS = 90;
+const SPARK_SPEED = 0.07; // vòng dọc dải sáng mỗi giây
 
-const _cam = new THREE.Vector3();
-const _ndc = new THREE.Vector3();
 const _f = new THREE.Vector3();
 
 /** Góc ngang camera; khi chúc thẳng xuống thì dùng hướng đỉnh màn hình. */
@@ -80,14 +72,12 @@ function viewAngle(q: THREE.Quaternion) {
 
 export class GuideScene {
   readonly root = new THREE.Group();
-  readonly planner = new GuidePlanner();
   /** Vị trí người dùng trong cảnh (x, z). */
   readonly position = new THREE.Vector2();
   /** Điểm đến trong cảnh (x, z). */
   readonly target = new THREE.Vector2();
   readonly north = new NorthEstimate();
   phase: GuidePhase = 'idle';
-  blocked = false;
   floorNow = 1;
   floorTo = 1;
   /** Sai số GPS gần nhất (m), NaN khi chưa có. */
@@ -108,7 +98,6 @@ export class GuideScene {
   private variance = 0;
   private originE = 0; // gốc cảnh = chỗ có GPS đầu tiên, để toạ độ cảnh nhỏ
   private originN = 0;
-  private mapNorth = NaN;
   private leadSide = 0;
   private leadLength = 0; // m đầu dải sáng là đoạn vòng
   private resampledAngle = 0;
@@ -122,8 +111,15 @@ export class GuideScene {
   private uvAttr: THREE.BufferAttribute;
   private alphaAttr: THREE.BufferAttribute;
   private marker: THREE.Sprite;
+  private sparks: THREE.Points;
+  private sparkMat: THREE.ShaderMaterial;
+  private sparkPos: THREE.BufferAttribute;
+  private sparkAlpha: THREE.BufferAttribute;
+  private sparkSeed = new Float32Array(SPARKS * 3);
+  private sparklesOn = true;
+  /** Hệ số cỡ hạt lấp lánh theo độ phân giải màn hình. */
+  pointScale = 40;
   private t = 0;
-  private observeAt = 0;
   private planAt = 0;
 
   constructor(scene: THREE.Scene) {
@@ -190,11 +186,41 @@ export class GuideScene {
     this.marker.scale.set(1.6, 3.2, 1);
     this.marker.material.opacity = 0.75;
     this.root.add(this.marker);
+
+    const sgeo = new THREE.BufferGeometry();
+    this.sparkPos = new THREE.BufferAttribute(new Float32Array(SPARKS * 3), 3);
+    this.sparkAlpha = new THREE.BufferAttribute(new Float32Array(SPARKS), 1);
+    this.sparkPos.setUsage(THREE.DynamicDrawUsage);
+    this.sparkAlpha.setUsage(THREE.DynamicDrawUsage);
+    sgeo.setAttribute('position', this.sparkPos);
+    sgeo.setAttribute('aAlpha', this.sparkAlpha);
+    for (let i = 0; i < this.sparkSeed.length; i++) this.sparkSeed[i] = Math.random();
+    this.sparkMat = new THREE.ShaderMaterial({
+      uniforms: { uPx: { value: 40 } },
+      vertexShader: `
+        attribute float aAlpha; uniform float uPx; varying float vA;
+        void main(){ vA = aAlpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = uPx * 9.0 / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `
+        varying float vA;
+        void main(){ float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5)) * vA; if (a < 0.02) discard; gl_FragColor = vec4(vec3(1.0, 0.93, 0.8) * a, a); }`,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.sparks = new THREE.Points(sgeo, this.sparkMat);
+    this.sparks.frustumCulled = false;
+    this.sparks.renderOrder = 5;
+    this.root.add(this.sparks);
     this.setVisible(false);
   }
 
   setVisible(v: boolean) {
     this.root.visible = v;
+  }
+
+  setSparkles(on: boolean) {
+    this.sparklesOn = on;
   }
 
   /** Khoảng cách thẳng tới điểm đến (m). */
@@ -262,7 +288,7 @@ export class GuideScene {
     return best;
   }
 
-  /** Tuyến phía trước, đổi sang toạ độ cảnh: điểm cách `carrot` m làm đích né vật cản, rồi phần còn lại. */
+  /** Tuyến phía trước, đổi sang toạ độ cảnh: điểm cách `carrot` m, rồi phần còn lại. */
   private routeAhead(north: number) {
     const r = this.route!;
     const p = this.projectOnRoute();
@@ -312,11 +338,8 @@ export class GuideScene {
     this.lastSetup = s;
     this.floorNow = s.floorNow;
     this.floorTo = s.floorTo;
-    this.blocked = false;
     this.path = [];
     this.hasShown = false;
-    this.planner.reset();
-    this.mapNorth = NaN;
     this.phase = s.floorNow !== s.floorTo ? 'floor' : this.hasFix && this.north.ready ? 'walk' : 'locating';
   }
 
@@ -361,17 +384,8 @@ export class GuideScene {
     this.variance += STEP_VARIANCE;
   }
 
-  /**
-   * @param compass hướng la bàn của camera (radian) và thời điểm đo, null nếu chưa có
-   * @param vision mặt nạ sàn đã sẵn sàng, null nếu chưa có
-   */
-  update(
-    dt: number,
-    cam: THREE.PerspectiveCamera,
-    compass: { value: number; at: number } | null,
-    vision: { mask: Float32Array; sample(x: number, y: number): number } | null,
-    now = performance.now(),
-  ) {
+  /** @param compass hướng la bàn của camera (radian) và thời điểm đo, null nếu chưa có */
+  update(dt: number, cam: THREE.PerspectiveCamera, compass: { value: number; at: number } | null, now = performance.now()) {
     this.t += dt;
     this.mat.uniforms.uTime.value = this.t;
     if (this.hasFix) this.variance += DRIFT_VARIANCE * dt;
@@ -392,6 +406,8 @@ export class GuideScene {
     }
     const walking = this.phase === 'walk';
     this.ribbon.visible = walking;
+    this.sparks.visible = walking && this.sparklesOn;
+    this.sparkMat.uniforms.uPx.value = this.pointScale;
     this.marker.visible = walking || this.phase === 'arrived';
     // điểm đến ở xa: đặt cột sáng theo hướng đích, cách vừa đủ để thấy
     const far = this.position.distanceTo(this.target);
@@ -399,38 +415,23 @@ export class GuideScene {
     this.marker.position.set(markAt.x, 1.2, markAt.y);
     if (!walking) return;
 
-    if (!Number.isNaN(this.mapNorth) && Math.abs(wrapAngle(north - this.mapNorth)) > REMAP_NORTH) {
-      this.planner.reset();
-      this.path = [];
-    }
-    this.observeAt += dt;
     this.planAt += dt;
-    this.planner.recenter(this.position.x, this.position.y);
-    if (vision && this.observeAt >= OBSERVE_EVERY) {
-      cam.getWorldPosition(_cam);
-      this.planner.observe(vision.mask, cam.projectionMatrixInverse, cam.quaternion, _cam, this.observeAt);
-      this.observeAt = 0;
-    }
     const angle = viewAngle(cam.quaternion);
     if (!this.path.length || this.planAt >= PLAN_EVERY) {
-      if (Number.isNaN(this.mapNorth) || !this.path.length) this.mapNorth = north;
-      if (this.route) {
-        // gần: né vật cản tới một điểm trên tuyến; xa: đi đúng theo tuyến
-        const { carrot, rest } = this.routeAhead(north);
-        const plan = this.planner.plan(this.position, carrot);
-        this.path = plan.blocked ? plan.points : [...plan.points, ...rest];
-        this.blocked = plan.blocked;
-      } else {
-        const plan = this.planner.plan(this.position, this.target);
-        this.path = plan.points;
-        this.blocked = plan.blocked;
-      }
+      this.path = this.computePath(north);
       this.planAt = 0;
       this.resample(angle);
     } else if (Math.abs(wrapAngle(angle - this.resampledAngle)) > RESAMPLE_TURN) {
       this.resample(angle);
     }
-    this.draw(dt, cam, vision);
+    this.draw(dt);
+  }
+
+  /** Đường cần vẽ: theo tuyến phố nếu có, không thì thẳng tới đích. */
+  private computePath(north: number): THREE.Vector2[] {
+    if (!this.route) return [this.position.clone(), this.target.clone()];
+    const { carrot, rest } = this.routeAhead(north);
+    return [this.position.clone(), carrot, ...rest];
   }
 
   /** Điểm trên đường cách người dùng `d` mét (đo dọc theo đường) và chỉ số đoạn chứa nó. */
@@ -507,7 +508,7 @@ export class GuideScene {
     }
   }
 
-  private draw(dt: number, cam: THREE.Camera, vision: { sample(x: number, y: number): number } | null) {
+  private draw(dt: number) {
     const k = 1 - Math.exp(-dt * SMOOTH);
     const s = this.shown, w = this.wanted;
     for (let i = 0; i < s.length; i++) s[i] += (w[i] - s[i]) * k;
@@ -524,16 +525,8 @@ export class GuideScene {
       tx /= l;
       tz /= l;
       if (i) alongLen += Math.hypot(x - a, z - b);
-      // chỉ hiện rõ trên vùng là sàn, tránh vẽ đè lên tường và đồ vật
-      let vis = 1;
-      if (vision) {
-        _ndc.set(x, 0, z).project(cam);
-        const far = Math.hypot(x - this.position.x, z - this.position.y) > MASK_RANGE;
-        vis = Math.max(far ? BEYOND_MASK : MIN_ON_FLOOR, vision.sample(_ndc.x, _ndc.y));
-      }
-      if (alongLen < this.leadLength) vis = Math.max(vis, LEAD_MIN_ALPHA);
       const dist = Math.hypot(x - this.position.x, z - this.position.y);
-      vis *= 1 - (1 - FAR_ALPHA) * THREE.MathUtils.smoothstep(dist, FADE_FROM, FADE_TO);
+      let vis = 1 - (1 - FAR_ALPHA) * THREE.MathUtils.smoothstep(dist, FADE_FROM, FADE_TO);
       vis *= (this.leadLength ? 1 : Math.min(1, i / 3)) * Math.min(1, (POINTS - 1 - i) / 6 + (i === POINTS - 1 ? 0 : 0.1));
       for (let side = 0; side < 2; side++) {
         const nrm = side ? 1 : -1;
@@ -547,5 +540,26 @@ export class GuideScene {
       }
     }
     this.posAttr.needsUpdate = this.uvAttr.needsUpdate = this.alphaAttr.needsUpdate = true;
+    this.drawSparks();
+  }
+
+  /** Hạt lấp lánh trôi dọc dải sáng về phía đích. */
+  private drawSparks() {
+    if (!this.sparks.visible) return;
+    const s = this.shown, seed = this.sparkSeed;
+    const pos = this.sparkPos.array as Float32Array, al = this.sparkAlpha.array as Float32Array;
+    for (let j = 0; j < SPARKS; j++) {
+      const a = seed[j * 3], b = seed[j * 3 + 1], c = seed[j * 3 + 2];
+      const u = (a + this.t * SPARK_SPEED) % 1;
+      const f = u * (POINTS - 1), i = Math.min(POINTS - 2, Math.floor(f)), k = f - i;
+      const x0 = s[i * 2], z0 = s[i * 2 + 1], x1 = s[i * 2 + 2], z1 = s[i * 2 + 3];
+      const l = Math.hypot(x1 - x0, z1 - z0) || 1;
+      const off = (b - 0.5) * WIDTH * 1.2;
+      pos[j * 3] = x0 + (x1 - x0) * k - ((z1 - z0) / l) * off;
+      pos[j * 3 + 1] = 0.03 + 0.06 * Math.abs(Math.sin(this.t * 2 + c * 30));
+      pos[j * 3 + 2] = z0 + (z1 - z0) * k + ((x1 - x0) / l) * off;
+      al[j] = Math.min(1, u * 12) * (1 - u) * (0.4 + 0.6 * Math.abs(Math.sin(this.t * 3 + c * 50)));
+    }
+    this.sparkPos.needsUpdate = this.sparkAlpha.needsUpdate = true;
   }
 }

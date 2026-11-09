@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { theme, BRAND_PETAL_RATIO } from '../config/theme';
 import { getPetalAtlas, CELL } from './petal-textures';
 import { createPetalMaterial, type Emitter } from '../physics/petal-system';
+import { CEILING_GLSL, ceilingUniforms, clipToCeiling } from './ceiling-clip';
 
 /**
  * Tán đào phủ trần (procedural – 0 byte tải về), không phụ thuộc kích thước phòng định trước:
  * các cụm cành xếp theo lưới quanh người xem, treo ở độ cao trần đo được, và ẩn cụm nằm ngoài
- * tường đã thấy. Lưới "cuộn" theo người xem nên đi tới đâu trên đầu cũng có cành.
+ * tường đã thấy. Lưới "cuộn" theo người xem nên đi tới đâu trên đầu cũng có cành. Khi có mô hình
+ * phân vùng thì cành chỉ hiện ở hướng là trần thật, nên tường và đồ vật che được tán hoa.
  * Mỗi cụm kèm một lớp bóng cây mờ sát trần.
  * Không có thân cây: gốc cành mờ dần (camera thật không che được vật ảo nên phải làm mờ thay vì "giấu").
  */
@@ -75,7 +77,7 @@ function buildShade(sk: ShadeSketch) {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 });
+  return clipToCeiling(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 }));
 }
 
 function rng(seed: number) {
@@ -144,10 +146,17 @@ function mergeGeometries(geos: THREE.BufferGeometry[]) {
 }
 
 const barkMaterial = new THREE.ShaderMaterial({
-  uniforms: { uColor: { value: new THREE.Color(theme.branch) }, uOpacity: { value: 0 }, uLight: { value: new THREE.Color(1, 1, 1) } },
+  uniforms: {
+    uColor: { value: new THREE.Color(theme.branch) },
+    uOpacity: { value: 0 },
+    uLight: { value: new THREE.Color(1, 1, 1) },
+    uSurface: ceilingUniforms.uSurface,
+    uClip: ceilingUniforms.uClip,
+  },
   vertexShader: `
+    ${CEILING_GLSL}
     attribute float aFade; varying float vFade; varying vec3 vN;
-    void main(){ vFade = aFade; vN = normalize(mat3(modelMatrix) * normal);
+    void main(){ vFade = aFade * ceilingMask((modelMatrix * vec4(position, 1.0)).xyz); vN = normalize(mat3(modelMatrix) * normal);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
     uniform vec3 uColor; uniform float uOpacity; uniform vec3 uLight; varying float vFade; varying vec3 vN;
@@ -164,8 +173,8 @@ export class Branches {
   readonly group = new THREE.Group();
   readonly emitter: Emitter = { points: [], rate: 0 };
   private blossomMat: THREE.ShaderMaterial;
-  private budMat = new THREE.MeshBasicMaterial({ color: 0xe0587f, transparent: true, opacity: 0 });
-  private leafMat = new THREE.MeshBasicMaterial({ color: 0x86a95e, transparent: true, opacity: 0, side: THREE.DoubleSide });
+  private budMat = clipToCeiling(new THREE.MeshBasicMaterial({ color: 0xe0587f, transparent: true, opacity: 0 }));
+  private leafMat = clipToCeiling(new THREE.MeshBasicMaterial({ color: 0x86a95e, transparent: true, opacity: 0, side: THREE.DoubleSide }));
   private sways: { g: THREE.Group; seed: number }[] = [];
   private blossoms: { mesh: THREE.InstancedMesh; full: number }[] = [];
   private details: THREE.InstancedMesh[] = [];
@@ -173,9 +182,11 @@ export class Branches {
   readonly holders: Holder[] = [];
   private t = 0;
   visibility = 0;
+  /** 1 = chỉ hiện ở hướng là trần thật; 0 = chưa có dữ liệu trần, hiện cả tán. */
+  clipTarget = 0;
 
   constructor(parent: THREE.Object3D) {
-    this.blossomMat = createPetalMaterial(getPetalAtlas().texture);
+    this.blossomMat = createPetalMaterial(getPetalAtlas().texture, true);
     this.blossomMat.uniforms.uCurl.value = 0;
     this.blossomMat.depthWrite = false;
     const sketch: ShadeSketch = { limbs: [], spots: [] };
@@ -189,7 +200,8 @@ export class Branches {
       }
     }
     this.shade = buildShade(sketch);
-    const shadeGeo = new THREE.PlaneGeometry(SHADE_SIZE, SHADE_SIZE).rotateX(-Math.PI / 2);
+    // chia nhỏ vì mức trần được tính theo đỉnh
+    const shadeGeo = new THREE.PlaneGeometry(SHADE_SIZE, SHADE_SIZE, 12, 12).rotateX(-Math.PI / 2);
     this.holders.forEach((h, i) => {
       const plane = new THREE.Mesh(shadeGeo, this.shade);
       plane.position.y = ROOT_BELOW;
@@ -366,6 +378,7 @@ export class Branches {
     this.t += dt;
     this.visibility += (visibility - this.visibility) * Math.min(1, dt * 4);
     const v = this.visibility;
+    ceilingUniforms.uClip.value += (this.clipTarget - ceilingUniforms.uClip.value) * Math.min(1, dt * 3);
     this.group.visible = v > 0.01;
     barkMaterial.uniforms.uOpacity.value = v;
     (barkMaterial.uniforms.uLight.value as THREE.Color).copy(light);

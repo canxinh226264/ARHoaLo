@@ -332,3 +332,6 @@ input[type='range'] { width: 46%; accent-color: var(--cobalt); }
   .gate__sign { aspect-ratio: auto; height: min(72svh, 560px); width: min(56vw, 380px); }
   .gate__blossom { height: min(80svh, 640px); left: calc(50% - min(48vw, 420px)); }
 }
+
+/* Trong phiên AR, làm mờ nền phía sau nút phải tính lại trên camera mỗi khung hình. */
+body.xr .chip, body.xr .round, body.xr .wayfind, body.xr .artcard, body.xr .toast { -webkit-backdrop-filter: none; backdrop-filter: none; }

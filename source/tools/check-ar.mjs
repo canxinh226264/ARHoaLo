@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -93,7 +93,7 @@ test('XR uses only nearest hit, preserving center ray identity if a source fails
   const xr = new XRAdapter({}, new THREE.Group(), new THREE.Scene());
   let index = 0; globalThis.XRRay = class {};
   const sources = await xr.createSources({ requestHitTestSource: () => index++ === 0 ? Promise.reject() : Promise.resolve({}) }, {});
-  assert.equal(sources.length, 4); assert.ok(sources.every(s => !s.center));
+  assert.equal(sources.length, 2); assert.ok(sources.every(s => !s.center));
   xr.sources = [{ source: {}, center: true }];
   const hit = y => ({ getPose: () => ({ transform: { position: { x: 0, y, z: 1 }, orientation: { x: 0, y: 0, z: 0, w: 1 } } }) });
   const frame = { getHitTestResults: () => [hit(-0.5), hit(-1.45)] };
@@ -126,7 +126,7 @@ test('Canopy follows the measured ceiling and the viewer, and hides behind walls
   b.setDetail(0.55);
 });
 
-// ---------------------------------------------------------------- dải sáng dẫn đường
+// ---------------------------------------------------------------- bản đồ phòng
 const V2 = (x, y) => new THREE.Vector2(x, y);
 /** Đặt vùng vật cản lên bản đồ của planner, toạ độ mét. */
 function paint(p, x0, z0, x1, z1) {
@@ -135,81 +135,8 @@ function paint(p, x0, z0, x1, z1) {
     if (i >= 0) p.score[i] = -1;
   }
 }
-/** Khoảng cách gần nhất từ đường tới một vùng hình chữ nhật. */
-function clearance(points, x0, z0, x1, z1) {
-  let best = Infinity;
-  for (let i = 1; i < points.length; i++) {
-    for (let k = 0; k <= 50; k++) {
-      const q = points[i - 1].clone().lerp(points[i], k / 50);
-      best = Math.min(best, Math.hypot(Math.max(x0 - q.x, 0, q.x - x1), Math.max(z0 - q.y, 0, q.y - z1)));
-    }
-  }
-  return best;
-}
-const pathLen = (pts) => pts.slice(1).reduce((s, q, i) => s + q.distanceTo(pts[i]), 0);
-
-test('Guide path goes straight when nothing is in the way', () => {
-  const p = new GuidePlanner();
-  const r = p.plan(V2(0, 0), V2(0, -4));
-  assert.equal(r.blocked, false);
-  assert.ok(pathLen(r.points) < 4.2, String(pathLen(r.points)));
-  assert.ok(r.points.at(-1).distanceTo(V2(0, -4)) < 0.01);
-});
-test('Guide path walks around an obstacle without touching it', () => {
-  const p = new GuidePlanner();
-  paint(p, -0.6, -2.6, 0.6, -1.8);
-  const r = p.plan(V2(0, 0), V2(0, -4));
-  assert.equal(r.blocked, false);
-  assert.ok(clearance(r.points, -0.6, -2.6, 0.6, -1.8) > 0.15, String(clearance(r.points, -0.6, -2.6, 0.6, -1.8)));
-  assert.ok(r.points.at(-1).distanceTo(V2(0, -4)) < 0.01);
-});
-test('Guide path reports a closed way and stops before the wall', () => {
-  const p = new GuidePlanner();
-  paint(p, -5, -2.2, 5, -2);
-  const r = p.plan(V2(0, 0), V2(0, -4));
-  assert.equal(r.blocked, true);
-  assert.ok(Math.min(...r.points.map((q) => q.y)) > -2, 'must not cross');
-});
-test('A destination on an object counts as reachable; the path stops beside it', () => {
-  const p = new GuidePlanner();
-  paint(p, -0.5, -3.2, 0.5, -2.8);
-  const r = p.plan(V2(0, 0), V2(0, -3));
-  assert.equal(r.blocked, false);
-  assert.ok(clearance(r.points, -0.5, -3.2, 0.5, -2.8) > 0.1);
-});
-test('Guide path prefers floor it has seen over going around through the unseen', () => {
-  const p = new GuidePlanner();
-  for (let x = -1.2; x <= 1.2; x += 0.05) for (let z = -4; z <= 0.2; z += 0.05) { const i = p.index(x, z); if (i >= 0) p.score[i] = 1; }
-  paint(p, -0.25, -2.2, 0.25, -1.8);
-  const r = p.plan(V2(0, 0), V2(0, -3.5));
-  assert.equal(r.blocked, false);
-  assert.ok(Math.max(...r.points.map((q) => Math.abs(q.x))) < 1.25, JSON.stringify(r.points));
-  assert.ok(clearance(r.points, -0.25, -2.2, 0.25, -1.8) > 0.15);
-});
-test('Guide path reaches a destination beyond the local map', () => {
-  const p = new GuidePlanner();
-  const r = p.plan(V2(0, 0), V2(0, -30));
-  assert.equal(r.blocked, false);
-  assert.ok(r.points.at(-1).distanceTo(V2(0, -30)) < 0.01);
-});
-test('Guide path does not trap the user standing next to an obstacle', () => {
-  const p = new GuidePlanner();
-  paint(p, -0.3, -0.5, 0.3, -0.2);
-  const r = p.plan(V2(0, 0), V2(0, -4));
-  assert.equal(r.blocked, false);
-});
-test('Guide path keeps its side instead of flipping between replans', () => {
-  const p = new GuidePlanner();
-  paint(p, -0.6, -2.6, 0.6, -1.8);
-  const side = (pts) => Math.sign(pts.reduce((a, q) => (Math.abs(q.x) > Math.abs(a) ? q.x : a), 0));
-  const first = side(p.plan(V2(0, 0), V2(0, -4)).points);
-  for (let i = 1; i <= 6; i++) {
-    // người đi thẳng, lệch nhẹ về phía đối diện: đường cũ còn đi được thì giữ nguyên
-    assert.equal(side(p.plan(V2(-first * 0.02 * i, -0.1 * i), V2(0, -4)).points), first);
-  }
-});
-test('Guide map keeps obstacles after recentering and forgets them over time', () => {
-  const p = new GuidePlanner();
+test('Room map keeps obstacles after recentering and forgets them over time', () => {
+  const p = new RoomMap();
   paint(p, 1, -1, 1.4, -0.6);
   p.recenter(3, 0);
   const i = p.index(1.2, -0.8);
@@ -220,7 +147,7 @@ test('Guide map keeps obstacles after recentering and forgets them over time', (
   assert.ok(Math.abs(p.score[i]) < 0.1, String(p.score[i]));
 });
 test('Camera mask becomes obstacles on the ground, ignoring the body at the frame edge', () => {
-  const p = new GuidePlanner();
+  const p = new RoomMap();
   const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
   cam.rotation.x = -0.6;
   cam.updateMatrixWorld();
@@ -231,17 +158,17 @@ test('Camera mask becomes obstacles on the ground, ignoring the body at the fram
   for (let r = 34; r < 40; r++) for (let c = 14; c < 22; c++) mask[r * W + c] = 0;
   for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
   let blockedNear = 0, blockedMid = 0;
-  for (let i = 0; i < p.score.length; i++) {
-    if (p.score[i] >= -0.25) continue;
-    const q = p.centerOf(i);
-    if (q.length() < 1) blockedNear++;
-    else if (q.y < 0 && Math.abs(q.x) < 1) blockedMid++;
+  for (let x = -4.7; x < 4.7; x += 0.2) for (let z = -4.7; z < 4.7; z += 0.2) {
+    const i = p.index(x, z);
+    if (i < 0 || p.score[i] >= -0.25) continue;
+    if (Math.hypot(x, z) < 1) blockedNear++;
+    else if (z < 0 && Math.abs(x) < 1) blockedMid++;
   }
   assert.equal(blockedNear, 0);
   assert.ok(blockedMid > 0);
 });
 test('The holder\'s leg rising from the frame edge is not an obstacle, a separate object is', () => {
-  const p = new GuidePlanner();
+  const p = new RoomMap();
   const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
   cam.rotation.x = -0.6;
   cam.updateMatrixWorld();
@@ -250,9 +177,6 @@ test('The holder\'s leg rising from the frame edge is not an obstacle, a separat
   const eye = new THREE.Vector3(0, 1.45, 0);
   for (let k = 0; k < 10; k++) p.observe(mask, cam.projectionMatrixInverse, cam.quaternion, eye, 0.1);
   assert.equal(p.score.filter((s) => s < -0.25).length, 0);
-  const r = p.plan(V2(0, 0), V2(0, -3));
-  assert.equal(r.blocked, false);
-  assert.ok(pathLen(r.points) < 3.2, String(pathLen(r.points)));
   // vật tách rời ở cùng khoảng cách vẫn là vật cản
   for (let r2 = 46; r2 < H; r2++) for (let c = 0; c < W; c++) mask[r2 * W + c] = 1;
   for (let r2 = 42; r2 < 47; r2++) for (let c = 14; c < 22; c++) mask[r2 * W + c] = 0;
@@ -288,6 +212,16 @@ test('North estimate averages across the ±180° seam', () => {
   assert.ok(Math.abs(Math.abs(n.angle) - Math.PI) < 0.06, String(n.angle));
 });
 
+test('North ignores a brief magnetic disturbance but follows a lasting change', () => {
+  const n = new NorthEstimate();
+  for (let i = 0; i < 200; i++) n.add(0, 0, 1 / 60);
+  assert.ok(Math.abs(n.angle) < 0.01);
+  for (let i = 0; i < 60; i++) n.add(0, 1.5, 1 / 60); // đi ngang khung sắt 1 giây
+  assert.ok(Math.abs(n.angle) < 0.01, String(n.angle));
+  for (let i = 0; i < 300; i++) n.add(0, 1.5, 1 / 60); // lệch kéo dài: hướng đổi thật
+  assert.ok(Math.abs(n.angle + 1.5) < 0.2, String(n.angle));
+});
+
 function guideRig() {
   const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
   globalThis.document = { createElement: () => ({ getContext: () => ctx }) };
@@ -300,7 +234,7 @@ function guideRig() {
 }
 /** Camera nhìn về hướng `heading` (la bàn), cảnh coi −Z là hướng nhìn. */
 function tick(g, cam, heading, n = 10) {
-  for (let i = 0; i < n; i++) g.update(0.1, cam, { value: heading, at: 1000 }, null, 1000);
+  for (let i = 0; i < n; i++) g.update(0.1, cam, { value: heading, at: 1000 }, 1000);
 }
 
 test('Guide waits for GPS and compass, then points the light at the gate', () => {
@@ -361,6 +295,16 @@ test('Guide on another floor waits and ignores steps', () => {
   g.start({ floorNow: 1, floorTo: 1 });
   tick(g, cam, 0);
   assert.equal(g.phase, 'walk');
+});
+test('The light aims at the true direction even when a wall is in the way', () => {
+  const { g, cam } = guideRig();
+  g.start({ floorNow: 1, floorTo: 1 });
+  g.gpsFix({ e: 30, n: 0, accuracy: 5 }); // đứng cách cổng 30 m về phía Đông: cổng ở hướng Tây
+  tick(g, cam, 0, 10); // đang nhìn về Bắc (−Z)
+  const dir = g.path.at(-1).clone().sub(g.position);
+  assert.ok(near(Math.atan2(dir.x, -dir.y), -Math.PI / 2, 0.02), String(Math.atan2(dir.x, -dir.y)));
+  assert.equal(g.path.length, 2); // thẳng tới đích, không vòng
+  assert.equal(g.ribbon.visible, true);
 });
 test('Path behind the user: the light starts in front and curves around', () => {
   const { g } = guideRig();
@@ -595,7 +539,7 @@ for (const [name, spec] of [
 ]) {
   test(`Room is measured from the camera: ${name}`, () => {
     const room = boxRoom(spec);
-    const map = new GuidePlanner(180), ceil = new CeilingVision();
+    const map = new RoomMap(180), ceil = new CeilingVision();
     assert.equal(ceil.height, DEFAULT_CEILING);
     assert.equal(ceil.measured, false);
     scanRoom(room, map, ceil);
@@ -611,7 +555,7 @@ for (const [name, spec] of [
 }
 test('Ceiling stays at the default when walls and ceiling share one colour', () => {
   const room = boxRoom({ x0: -2, x1: 3, z0: -2.5, z1: 2, h: 3.5 });
-  const map = new GuidePlanner(180), ceil = new CeilingVision();
+  const map = new RoomMap(180), ceil = new CeilingVision();
   const pos = new THREE.Vector3(0, room.eye, 0);
   for (const pitch of [-0.75, 0.75, 1.0]) for (let a = 0; a < 24; a++) {
     const cam = room.camera((a / 24) * 6.283, pitch);
@@ -623,8 +567,27 @@ test('Ceiling stays at the default when walls and ceiling share one colour', () 
   assert.equal(ceil.measured, false);
   assert.equal(ceil.height, DEFAULT_CEILING);
 });
+test('Ceiling is measured from the AI mask, and furniture hiding the wall foot does not pull it down', () => {
+  const spec = { x0: -2.5, x1: 3, z0: -3, z1: 2.5, h: 3.4 };
+  const room = boxRoom(spec);
+  const map = new RoomMap(180), ceil = new CeilingVision();
+  const pos = new THREE.Vector3(0, room.eye, 0);
+  for (const pitch of [-0.75, -0.45, 0.2, 0.75, 1.0]) for (let a = 0; a < 24; a++) {
+    const yaw = (a / 24) * Math.PI * 2;
+    const cam = room.camera(yaw, pitch);
+    const { rgba, mask } = room.render(cam);
+    const ceilMask = new Float32Array(W * H);
+    for (let i = 0; i < ceilMask.length; i++) ceilMask[i] = rgba[i * 4] === 245 ? 1 : 0;
+    // một phần ba các hướng có giường che chân tường: sàn kết thúc sớm hơn
+    if (a % 3 === 0) for (let i = 0; i < mask.length; i++) if (i < W * 44) mask[i] = 0;
+    map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
+    ceil.updateMask(ceilMask, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
+  }
+  assert.equal(ceil.measured, true);
+  assert.ok(Math.abs(ceil.height - spec.h) < spec.h * 0.15, `trần ${ceil.height.toFixed(2)} so với ${spec.h}`);
+});
 test('A table in the room is not a wall', () => {
-  const map = new GuidePlanner(180);
+  const map = new RoomMap(180);
   paint(map, -0.6, -2.2, 0.6, -1.6); // mặt bàn dài 0,6 m theo hướng nhìn
   assert.equal(map.wallAlong(0, 0, 0, -1), null);
   assert.equal(map.isInside(0, 0, 0, -3.5), true);
@@ -632,4 +595,95 @@ test('A table in the room is not a wall', () => {
   const d = map.wallAlong(0, 0, 0, -1);
   assert.ok(d !== null && d < 3.3, String(d));
   assert.equal(map.isInside(0, 0, 0, -3.8), false);
+});
+
+// ---------------------------------------------------------------- nhận diện sàn/trần bằng mô hình
+/** Khung hình phân vùng: mỗi ô do hàm fn(tâm NDC x, y) trả về 'floor' | 'ceil' | 'wall' | 'other'. */
+function segFrame(fn, w = 33, h = 57) {
+  const f = { w, h, floor: new Uint8Array(w * h), ceil: new Uint8Array(w * h), wall: new Uint8Array(w * h) };
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+    const k = fn((c / (w - 1)) * 2 - 1, 1 - (r / (h - 1)) * 2);
+    if (k !== 'other') f[k][r * w + c] = 255;
+  }
+  return f;
+}
+function surfaceCam(pitch, yaw = 0) {
+  const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+  cam.rotation.order = 'YXZ';
+  cam.rotation.set(pitch, yaw, 0);
+  cam.updateMatrixWorld();
+  cam.updateProjectionMatrix();
+  return cam;
+}
+const integrate = (s, f, cam) => s.integrate(f, cam.projectionMatrix, cam.projectionMatrixInverse, cam.quaternion);
+
+test('Model logits become floor, ceiling and wall confidence', () => {
+  const C = 151, logits = new Float32Array(4 * C);
+  logits[0 * C + 4] = 8; // sàn
+  logits[1 * C + 6] = 8; // trần
+  logits[2 * C + 1] = 8; // tường
+  logits[3 * C + 8] = 8; // giường: không thuộc nhóm nào
+  const f = logitsToFrame(logits, 2, 2, C);
+  assert.ok(f.floor[0] > 250 && f.ceil[0] < 5 && f.wall[0] < 5);
+  assert.ok(f.ceil[1] > 250 && f.floor[1] < 5);
+  assert.ok(f.wall[2] > 250 && f.floor[2] < 5);
+  assert.ok(f.floor[3] < 5 && f.ceil[3] < 5 && f.wall[3] < 5);
+  // đèn trần và thảm tính vào trần và sàn
+  const g = new Float32Array(2 * C);
+  g[83] = 8; g[C + 29] = 8;
+  const fr = logitsToFrame(g, 1, 2, C);
+  assert.ok(fr.ceil[0] > 250 && fr.floor[1] > 250);
+});
+test('Surface map stays attached to the world when the phone turns', () => {
+  const s = new SurfaceMap();
+  assert.equal(s.ready, false);
+  const cam = surfaceCam(-0.6); // chúc xuống, nửa dưới là sàn
+  integrate(s, segFrame((x, y) => (y < 0.1 ? 'floor' : 'wall')), cam);
+  integrate(s, segFrame((x, y) => (y < 0.1 ? 'floor' : 'wall')), cam);
+  assert.equal(s.ready, true);
+  const down = new THREE.Vector3(0, -1, -1.2).normalize();
+  assert.ok(s.sample(0, 0, down.x, down.y, down.z) > 0.9);
+  // hướng chưa từng thấy: chưa biết nên không hiện hoa
+  assert.equal(s.sample(0, 0, 0, -0.7, 1), 0);
+  // quay sang chỗ khác rồi vẫn nhớ vùng cũ, không phụ thuộc màn hình đang nhìn đâu
+  integrate(s, segFrame(() => 'other'), surfaceCam(-0.6, Math.PI));
+  assert.ok(s.sample(0, 0, down.x, down.y, down.z) > 0.9);
+  // sàn vừa bị vật khác che thì tắt
+  integrate(s, segFrame(() => 'other'), cam);
+  integrate(s, segFrame(() => 'other'), cam);
+  integrate(s, segFrame(() => 'other'), cam);
+  assert.ok(s.sample(0, 0, down.x, down.y, down.z) < 0.3);
+  s.reset();
+  assert.equal(s.ready, false);
+  assert.equal(s.sample(0, 0, down.x, down.y, down.z), 0);
+});
+test('Surface map rejects impossible labels using the phone orientation', () => {
+  const s = new SurfaceMap();
+  // mô hình nói "sàn" ở cả khung hình khi nhìn ngang: phần trên chân trời không phải sàn
+  const level = surfaceCam(0);
+  integrate(s, segFrame(() => 'floor'), level);
+  integrate(s, segFrame(() => 'floor'), level);
+  assert.ok(s.sample(0, 0, 0, 0.3, -1) < 0.05);
+  assert.ok(s.sample(0, 0, 0, -0.3, -1) > 0.9);
+  // nhìn gần thẳng lên: "tường" ở đỉnh đầu thực ra là trần, còn tường ở tầm mắt vẫn là tường
+  const up = surfaceCam(1.35);
+  integrate(s, segFrame(() => 'wall'), up);
+  const centre = (W >> 1) + (H >> 1) * W;
+  assert.ok(s.ceilMask[centre] > 0.9, String(s.ceilMask[centre]));
+  const ahead = surfaceCam(0.1);
+  integrate(s, segFrame(() => 'wall'), ahead);
+  assert.ok(s.ceilMask[centre] < 0.05, String(s.ceilMask[centre]));
+  // "trần" ở dưới đường chân trời bị loại
+  integrate(s, segFrame(() => 'ceil'), surfaceCam(-0.5));
+  assert.ok(s.ceilMask[centre] < 0.05, String(s.ceilMask[centre]));
+});
+test('Surface model files are present and match the expected input', async () => {
+  const fs = await import('node:fs');
+  const m = JSON.parse(fs.readFileSync('../models/surface/model.json', 'utf8'));
+  const input = m.modelTopology.node.find((n) => n.name === 'input');
+  assert.deepEqual(input.attr.shape.shape.dim.map((d) => +d.size), [1, 225, 129, 3]);
+  assert.ok(!m.modelTopology.node.some((n) => n.op === 'SpaceToBatchND' || n.op === 'BatchToSpaceND'));
+  assert.ok(m.modelTopology.node.some((n) => n.name === 'logits/semantic/BiasAdd'));
+  const bytes = m.weightsManifest[0].weights.reduce((sum, w) => sum + w.shape.reduce((a, b) => a * b, 1) * (w.quantization ? (w.quantization.dtype === 'uint8' ? 1 : 2) : 4), 0);
+  assert.equal(fs.statSync('../models/surface/weights.bin').size, bytes);
 });

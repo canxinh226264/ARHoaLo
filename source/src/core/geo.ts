@@ -9,6 +9,14 @@ import * as THREE from 'three';
  */
 const EARTH_R = 6371008.8;
 const D2R = Math.PI / 180;
+/** Lệch quá góc này so với ước lượng hiện tại thì coi là nhiễu từ (rad, ~35°). */
+const NORTH_OUTLIER = 0.6;
+/** Lệch kéo dài quá chừng này (giây) mới tin là hướng Bắc đổi thật. */
+const NORTH_OUTLIER_HOLD = 3;
+/** Đang bám theo hướng mới: lệch dưới mức này thì trở lại lọc bình thường (rad). */
+const NORTH_RELOCKED = 0.1;
+/** Số mẫu đầu hội tụ nhanh, sau đó trung bình dài hơn cho khỏi rung theo la bàn. */
+const NORTH_SETTLE = 120;
 
 /** Toạ độ mét Đông/Bắc của (lat, lng) so với gốc (lat0, lng0). Đủ chính xác trong vài km. */
 export function toEnu(lat: number, lng: number, lat0: number, lng0: number) {
@@ -52,21 +60,34 @@ export function wrapAngle(a: number) {
 /**
  * Ước lượng hướng Bắc trong hệ toạ độ cảnh, trung bình theo thời gian vì la bàn trong
  * thành phố rung và lệch (khung sắt, xe cộ). Lấy trung bình vector đơn vị để không bị
- * lỗi nhảy 359° → 0°.
+ * lỗi nhảy 359° → 0°. Đi ngang vật sắt làm la bàn lệch trong chốc lát thì bỏ qua các mẫu
+ * đó; lệch kéo dài mới bám theo.
  */
 export class NorthEstimate {
   private x = 0;
   private y = 0;
+  private outlierFor = 0;
   samples = 0;
 
   reset() {
     this.x = this.y = 0;
+    this.outlierFor = 0;
     this.samples = 0;
   }
 
   /** @param camAngle góc ngang của camera trong cảnh, @param compass góc la bàn của camera */
-  add(camAngle: number, compass: number, dt: number, timeConstant = 2) {
+  add(camAngle: number, compass: number, dt: number) {
     const north = camAngle - compass;
+    let timeConstant = this.samples < NORTH_SETTLE ? 2 : 6;
+    if (this.ready) {
+      const off = Math.abs(wrapAngle(north - this.angle));
+      if (off > NORTH_OUTLIER || this.outlierFor >= NORTH_OUTLIER_HOLD) {
+        this.outlierFor += dt;
+        if (this.outlierFor < NORTH_OUTLIER_HOLD) return;
+        timeConstant = 1;
+        if (off < NORTH_RELOCKED) this.outlierFor = 0;
+      } else this.outlierFor = 0;
+    }
     const k = this.samples < 5 ? 1 / (this.samples + 1) : 1 - Math.exp(-dt / timeConstant);
     this.x += (Math.sin(north) - this.x) * k;
     this.y += (Math.cos(north) - this.y) * k;

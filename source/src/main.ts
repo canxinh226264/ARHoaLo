@@ -16,7 +16,10 @@ import { QualityManager } from './core/quality-manager';
 import { CorridorLocalizer } from './core/corridor-localizer';
 import { XRAdapter } from './core/xr-adapter';
 import { FloorVision, floorDistances, GRID_W, GRID_H } from './core/floor-vision';
-import { GuidePlanner } from './core/guide-planner';
+import { RoomMap } from './core/room-map';
+import { SurfaceMap } from './core/surface-map';
+import { SurfaceSegmenter, SEG_H, SEG_W } from './core/surface-segmenter';
+import { ceilingUniforms } from './scenes/ceiling-clip';
 import { CeilingVision, DEFAULT_CEILING } from './core/ceiling-vision';
 import { HandTracker, HandOccluder } from './tracking/hand-tracker';
 import { ManualMarkerTracker } from './tracking/marker-tracker';
@@ -24,7 +27,6 @@ import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
 import { GuideScene, DESTINATION } from './scenes/guide-scene';
 import { GeoTracker, type GeoFix } from './core/geo-tracker';
-import type { LatLng } from './ui/minimap';
 import { fromEnu } from './core/geo';
 import { fetchRoute, routingKey } from './core/route-service';
 import { AskPanel } from './ui/ask-panel';
@@ -53,28 +55,15 @@ const R = new Renderer($<HTMLCanvasElement>('gl'));
 const world = new THREE.Group(); // hệ toạ độ phòng (WebXR đặt lại ma trận này)
 R.scene.add(world);
 const indoor = new IndoorScene(world);
-const outdoor = new OutdoorScene(R.scene, R.camera);
+const outdoor = new OutdoorScene(R.camera);
 const guide = new GuideScene(R.scene);
 const geo = new GeoTracker(DESTINATION.lat, DESTINATION.lng);
-let lastFix: GeoFix | null = null;
-let outdoorRoute: LatLng[] | null = null;
-let outdoorRouteAsked = false;
-geo.onFix = (f) => {
-  guide.gpsFix(f);
-  lastFix = f;
-  // đợi GPS đủ chính xác rồi mới xin tuyến, tránh tính đường từ vị trí sai
-  if (settings.mode === 'outdoor' && !outdoorRouteAsked && f.accuracy < 100) {
-    outdoorRouteAsked = true;
-    fetchRoute(fromEnu(f.e, f.n, DESTINATION.lat, DESTINATION.lng), DESTINATION).then((r) => {
-      outdoorRoute = r ? r.points.map((p) => fromEnu(p.e, p.n, DESTINATION.lat, DESTINATION.lng)) : null;
-    });
-  }
-};
+geo.onFix = (f: GeoFix) => guide.gpsFix(f);
 // tuyến đi bộ theo phố; lỗi thì dải sáng tạm theo hướng chim bay
 guide.onNeedRoute = (e, n) => {
   const from = fromEnu(e, n, DESTINATION.lat, DESTINATION.lng);
   fetchRoute(from, DESTINATION).then((r) => {
-    if (settings.mode !== 'guide') return;
+    if (settings.mode === 'indoor') return;
     const first = !guide.hasRoute;
     guide.setRoute(r?.points ?? null);
     if (!r && first) toast(ui, routingKey() ? t('guideRouteFail') : t('guideNoKey'), 6000, true);
@@ -92,8 +81,24 @@ const markers = new ManualMarkerTracker();
 const floorVision = new FloorVision();
 const floorDist = new Float32Array(GRID_W * GRID_H);
 // đo phòng từ camera: bản đồ sàn/tường và chiều cao trần, thay cho kích thước cố định trong room.json
-const roomMap = new GuidePlanner(180);
+const roomMap = new RoomMap(180);
 const ceiling = new CeilingVision();
+// nhận diện sàn/trần bằng mô hình AI; đo theo màu (FloorVision, CeilingVision.update) chỉ dùng khi chưa có mô hình
+const surfaces = new SurfaceMap();
+const segmenter = new SurfaceSegmenter();
+ceilingUniforms.uSurface.value = surfaces.texture;
+let surfaceSeenAt = 0;
+segmenter.onResult = (frame, pose) => {
+  surfaces.integrate(frame, pose.proj, pose.projInv, pose.q);
+  const now = performance.now();
+  const sec = Math.min(2, (now - surfaceSeenAt) / 1000);
+  surfaceSeenAt = now;
+  const p = pose.pos;
+  roomMap.recenter(p.x, p.z);
+  roomMap.observe(surfaces.floorMask, pose.projInv, pose.q, p, sec);
+  ceiling.updateMask(surfaces.ceilMask, pose.projInv, pose.q, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
+  if (dbgMask) drawFloorMask(dbgMask);
+};
 const roomCam = new THREE.Vector3();
 indoor.petals.room = {
   ceilingY: DEFAULT_CEILING,
@@ -102,6 +107,8 @@ indoor.petals.room = {
 function resetRoom() {
   roomMap.reset();
   ceiling.reset();
+  surfaces.reset();
+  segmenter.invalidate();
 }
 indoor.petals.sources.push(hand);
 
@@ -308,10 +315,12 @@ async function startXR() {
   };
   xr.onEnd = () => {
     if (hud) hud.xrActive = false;
+    applySettings();
     startCameraMode();
   };
   try {
     await xr.start(ui);
+    applySettings(); // AR nâng cao chạy ở mức chất lượng thấp cho đỡ giật
   } catch {
     if (hud) hud.xrActive = false;
     await startCameraMode();
@@ -324,17 +333,16 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
     settings.mode = m;
     indoor.setVisible(m === 'indoor');
     outdoor.setVisible(m === 'outdoor');
-    guide.setVisible(m === 'guide');
-    if (m !== 'guide') guide.stop();
+    guide.setVisible(m !== 'indoor');
     if (m === 'indoor') {
+      guide.stop();
       geo.stop();
       minimap.setVisible(false);
       resetRoom();
     } else if (m === 'outdoor') {
-      outdoorRouteAsked = false;
-      outdoorRoute = null;
-      lastFix = null;
+      guide.start({ floorNow: 1, floorTo: 1 });
       geo.start();
+      warnIfNoCompass();
     }
     occluder.mesh.visible = false;
     if (m === 'indoor') {
@@ -349,10 +357,6 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
       if (hand.status === 'ready') startArtifacts();
       if (artViewer.visible) artViewer.close();
       if (infoItem) hideInfoCard();
-      if (m === 'outdoor') {
-        outdoor.progress = 0;
-        sensors.recenter(-Math.PI / 2); // nhìn vào pano P
-      }
     }
     hud?.update(settings);
   };
@@ -367,7 +371,7 @@ function applySettings() {
   p.density = settings.density;
   p.reduceMotion = settings.reduceMotion;
   document.body.classList.toggle('reduce-motion', settings.reduceMotion);
-  quality.setBatterySaver(settings.battery);
+  quality.setBatterySaver(settings.battery || !!xr.session);
   applyQuality();
   indoor.guide.visible = settings.guide;
   hud?.update(settings);
@@ -380,7 +384,7 @@ function applyQuality() {
   indoor.petals.maxResting = q.maxResting;
   indoor.branches.setDetail(q.branchDetail);
   hand.hz = q.handHz;
-  outdoor.setSparkles(q.sparkles && !settings.battery);
+  guide.setSparkles(q.sparkles && !settings.battery);
 }
 quality.onChange = applyQuality;
 
@@ -395,14 +399,9 @@ const handlers = {
   },
   recenter() {
     resetRoom();
-    // đổi hướng giữa chừng sẽ làm lệch điểm đến đã đặt, nên đặt lại luôn
-    if (settings.mode === 'guide') {
-      guideOpen();
-      return;
-    }
     floorVision.reset();
     indoor.petals.clear();
-    sensors.recenter(settings.mode === 'indoor' ? 0 : -Math.PI / 2);
+    sensors.recenter(0);
     toast(ui, t('recentered'), 2000);
   },
   standAt(id: string) {
@@ -410,11 +409,6 @@ const handlers = {
   },
   tutorial() {
     showOnboarding(ui);
-  },
-  outdoorAlign() {
-    outdoor.progress = 0;
-    sensors.recenter(-Math.PI / 2);
-    toast(ui, t('outdoorAligned'), 2200);
   },
   arrived() {
     setMode('indoor', true);
@@ -455,7 +449,7 @@ const askPanel = new AskPanel(ui, {
   items: targetItems.filter((i) => i.kind !== 'enter'),
   current: currentItem,
   status: () => {
-    if (settings.mode === 'guide' && guide.hasFix) return `Khách đang được dẫn đường tới ${DESTINATION.nameVi}, còn khoảng ${Math.round(guide.distanceLeft)} m.`;
+    if (settings.mode !== 'indoor' && guide.hasFix) return `Khách đang được dẫn đường tới ${DESTINATION.nameVi}, còn khoảng ${Math.round(guide.distanceLeft)} m.`;
     if (settings.mode === 'indoor') return 'Khách đang ở trong hành lang trưng bày.';
     return 'Khách đang ở ngoài cổng di tích.';
   },
@@ -472,10 +466,14 @@ function guideOpen() {
     if (!guide.hasFix) geo.start();
     guide.start(s);
     if (s.floorNow !== s.floorTo) toast(ui, t('guideStairs'), 4000);
-    setTimeout(() => {
-      if (settings.mode === 'guide' && geo.compass === null) toast(ui, t('guideNoCompass'), 7000, true);
-    }, 4000);
+    warnIfNoCompass();
   });
+}
+/** Dải sáng cần la bàn mới biết hướng; không có thì báo để người dùng hiệu chỉnh. */
+function warnIfNoCompass() {
+  setTimeout(() => {
+    if (settings.mode !== 'indoor' && geo.compass === null) toast(ui, t('guideNoCompass'), 7000, true);
+  }, 4000);
 }
 guide.onArrive = () => {
   toast(ui, t('guideArrived')(getLang() === 'vi' ? DESTINATION.shortVi : DESTINATION.shortEn), 5000);
@@ -483,7 +481,7 @@ guide.onArrive = () => {
 };
 
 markers.onFix = (fix) => {
-  if (settings.mode === 'guide') return;
+  if (settings.mode !== 'indoor') return;
   localizer.fixAtPanel(fix.panel);
   sensors.recenter(fix.panel.side === 'orange' ? Math.PI / 2 : -Math.PI / 2);
   toast(ui, `${t('fixed')} ${fix.panel.id}`, 2200);
@@ -491,18 +489,10 @@ markers.onFix = (fix) => {
 
 // bước chân → cập nhật vị trí (dead-reckoning)
 const fwd = new THREE.Vector3();
-let arrivedPrompted = false;
 sensors.onStep = () => {
   fwd.set(0, 0, -1).applyQuaternion(R.camera.quaternion);
   if (settings.mode === 'indoor') localizer.onStep(fwd);
-  else if (settings.mode === 'guide') guide.step(fwd);
-  else {
-    outdoor.step(fwd);
-    if (outdoor.arrived && !arrivedPrompted) {
-      arrivedPrompted = true;
-      toast(ui, t('arrivedNear'), 5000);
-    }
-  }
+  else guide.step(fwd);
 };
 
 hand.onChange = (active, grabbing) => {
@@ -620,8 +610,11 @@ const roomToClip = new THREE.Matrix4();
 const invWorldQ = new THREE.Quaternion();
 const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
 const VISION_MS = 100;
+/** Quay nhanh hơn mức này (rad/s) thì ảnh nhoè, chưa đưa vào mô hình. */
+const MAX_SURFACE_TURN = 1.2;
 let layoutAt = 0;
 let visionAt = 0;
+let surfaceAt = 0;
 const visionQ = new THREE.Quaternion();
 // ?debug: ô nhỏ góc trên trái cho thấy app đang coi đâu là sàn (xanh)
 const dbgMask = DEBUG ? document.body.appendChild(Object.assign(document.createElement('canvas'), { width: GRID_W, height: GRID_H })) : null;
@@ -631,8 +624,10 @@ function drawFloorMask(c: HTMLCanvasElement) {
   const ctx = c.getContext('2d');
   if (!ctx) return;
   const img = ctx.createImageData(GRID_W, GRID_H);
-  floorVision.mask.forEach((m, i) => {
+  const ai = surfaces.ready;
+  (ai ? surfaces.floorMask : floorVision.mask).forEach((m, i) => {
     img.data[i * 4 + 1] = m * 255;
+    img.data[i * 4 + 2] = ai ? surfaces.ceilMask[i] * 255 : 0;
     img.data[i * 4 + 3] = 255;
   });
   ctx.putImageData(img, 0, 0);
@@ -653,8 +648,7 @@ function tick(now: number, frame?: XRFrame) {
     localizer.update(dt);
     R.camera.quaternion.copy(sensors.quaternion);
     if (settings.mode === 'indoor') R.camera.position.copy(localizer.position);
-    else if (settings.mode === 'guide') R.camera.position.set(guide.position.x, room.user.eyeHeightDefault, guide.position.y);
-    else outdoor.eyePosition(R.camera.position, room.user.eyeHeightDefault);
+    else R.camera.position.set(guide.position.x, room.user.eyeHeightDefault, guide.position.y);
     if (feed.ready) R.setVFov(feed.displayVFov(room.camera.longEdgeFovDeg));
     R.camera.updateMatrixWorld();
   }
@@ -686,21 +680,33 @@ function tick(now: number, frame?: XRFrame) {
   }
 
   // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
-  const useVision = !inXR && hasCamera && settings.mode !== 'outdoor';
+  const useVision = !inXR && hasCamera && settings.mode === 'indoor';
   const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored;
-  if (useVision && !canScan) floorVision.reset();
-  if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
+  if (useVision && !canScan) {
+    floorVision.reset();
+    surfaces.reset();
+  }
+  if (canScan) segmenter.start();
+  if (canScan && segmenter.status === 'ready') {
+    // máy yếu hoặc đang tiết kiệm pin thì chạy thưa đi
+    const every = quality.batterySaver ? 1200 : quality.level === 'low' ? 700 : 300;
+    if (!segmenter.busy && now - surfaceAt >= every && sensors.angularVel.length() < MAX_SURFACE_TURN) {
+      const rgba = feed.sampleGrid(SEG_W, SEG_H);
+      if (rgba) {
+        surfaceAt = now;
+        segmenter.segment(rgba, R.camera);
+      }
+    }
+  } else if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
     const grid = feed.sampleGrid(GRID_W, GRID_H);
     if (grid) {
       const sec = Math.min(0.5, (now - visionAt) / 1000);
       floorDistances(floorDist, R.camera.projectionMatrixInverse, R.camera.quaternion, R.camera.position.y);
       floorVision.update(grid, floorDist, sec);
-      if (settings.mode === 'indoor') {
-        const p = R.camera.position;
-        roomMap.recenter(p.x, p.z);
-        if (floorVision.ready) roomMap.observe(floorVision.mask, R.camera.projectionMatrixInverse, R.camera.quaternion, p, sec);
-        ceiling.update(grid, R.camera.projectionMatrixInverse, R.camera.quaternion, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
-      }
+      const p = R.camera.position;
+      roomMap.recenter(p.x, p.z);
+      if (floorVision.ready) roomMap.observe(floorVision.mask, R.camera.projectionMatrixInverse, R.camera.quaternion, p, sec);
+      ceiling.update(grid, R.camera.projectionMatrixInverse, R.camera.quaternion, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
       visionAt = now;
       visionQ.copy(R.camera.quaternion);
       if (dbgMask) drawFloorMask(dbgMask);
@@ -720,6 +726,7 @@ function tick(now: number, frame?: XRFrame) {
       layoutAt = now;
       indoor.branches.layout(camPosRoom.x, camPosRoom.z, ceilingY, indoor.petals.room!.isInside);
     }
+    indoor.branches.clipTarget = useVision && surfaces.ready ? 1 : 0;
     indoor.branches.update(dt, canopy, up, light, settings.reduceMotion);
     indoor.petals.lookUp = up;
     indoor.petals.lookDown = down;
@@ -734,13 +741,15 @@ function tick(now: number, frame?: XRFrame) {
       }
     }
     if (demoHand) demoHand.update(dt, R.camera);
-    indoor.petals.floorMask = useVision ? floorVision : null;
+    indoor.petals.floorMask = useVision ? (surfaces.ready ? surfaces : floorVision) : null;
     if (!inXR || xr.placed) {
       roomToClip.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(world.matrixWorld);
       indoor.petals.update(dt, roomToClip, camPosRoom, fwdRoom);
     }
-  } else if (settings.mode === 'guide') {
-    guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt }, canScan && floorVision.ready ? floorVision : null);
+  } else {
+    guide.pointScale = R.gl.getPixelRatio() * innerHeight * 0.02;
+    guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt });
+    if (settings.mode === 'outdoor') outdoor.update(dt, sensors.angularVel, settings.reduceMotion);
     const showMap = guide.hasFix && (guide.phase === 'walk' || guide.phase === 'locating' || guide.phase === 'arrived');
     minimap.setVisible(showMap);
     if (showMap && now - minimapAt > 100) {
@@ -754,22 +763,7 @@ function tick(now: number, frame?: XRFrame) {
         accuracy: guide.accuracy,
       });
     }
-    hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
-  } else {
-    outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
-    hud?.setRemaining(outdoor.remaining);
-    hud?.setTurn(outdoor.turnHint(camPosRoom, fwdRoom));
-    minimap.setVisible(!!lastFix);
-    if (lastFix && now - minimapAt > 100) {
-      minimapAt = now;
-      minimap.update({
-        me: fromEnu(lastFix.e, lastFix.n, DESTINATION.lat, DESTINATION.lng),
-        heading: geo.compass ?? 0,
-        route: outdoorRoute,
-        dest: DESTINATION,
-        accuracy: lastFix.accuracy,
-      });
-    }
+    hud?.setGuide({ phase: guide.phase, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
   }
 
   quality.tick(dt);
@@ -782,6 +776,7 @@ function tick(now: number, frame?: XRFrame) {
       `rơi ${st.falling} · đọng ${st.resting} · giữ ${st.held}\n` +
       `x ${localizer.position.x.toFixed(2)} z ${localizer.position.z.toFixed(2)} · pitch ${pitch.toFixed(0)}°\n` +
       `trần ${ceiling.height.toFixed(2)} m${ceiling.measured ? '' : ' (mặc định)'}\n` +
+      `AI ${segmenter.status}${segmenter.lastMs ? ` · ${segmenter.lastMs.toFixed(0)} ms` : ''}\n` +
       `tay ${hand.status}${hand.active ? ` · ${hand.depth.toFixed(2)} m${hand.grabbing ? ' · nắm' : ''}` : ''}`;
   }
 }
@@ -803,4 +798,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap, roomMap, ceiling };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap, roomMap, ceiling, surfaces, segmenter };

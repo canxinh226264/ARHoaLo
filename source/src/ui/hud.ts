@@ -28,7 +28,6 @@ export interface HudHandlers {
   recenter(): void;
   standAt(panelId: string): void;
   tutorial(): void;
-  outdoorAlign(): void;
   arrived(): void;
   exitXr?(): void;
   replaceFloor?(): void;
@@ -50,7 +49,7 @@ const PANEL_LABEL: Record<string, string> = {
   D11: 'Bàn quà, cây đào',
 };
 
-type GuideState = { phase: GuidePhase; blocked: boolean; floorNow: number; floorTo: number; remaining: number; accuracy: number; routeState: RouteState };
+type GuideState = { phase: GuidePhase; floorNow: number; floorTo: number; remaining: number; accuracy: number; routeState: RouteState };
 
 export class Hud {
   readonly el: HTMLElement;
@@ -61,8 +60,6 @@ export class Hud {
   private artState: { item: ArtifactCardItem | null; mode: string } = { item: null, mode: 'hidden' };
   artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void; reading(): void } | null = null;
   private handState: 'off' | 'seen' | 'hold' | 'loading' = 'off';
-  private remaining = 0;
-  private turn: '' | 'turnLeft' | 'turnRight' | 'turnBack' = '';
   xrActive = false;
 
   constructor(private root: HTMLElement, private s: Settings, private h: HudHandlers) {
@@ -103,22 +100,6 @@ export class Hud {
     if (state === this.handState) return;
     this.handState = state;
     this.refreshHand();
-  }
-
-  setRemaining(m: number) {
-    const r = Math.round(m);
-    if (r === this.remaining) return;
-    this.remaining = r;
-    if (this.s.mode !== 'indoor') this.refreshWay();
-  }
-
-  /** Gợi ý hướng khi dải sáng nằm ngoài khung hình (góc có dấu, + bên phải). */
-  setTurn(deg: number, inView = 50) {
-    const a = Math.abs(deg);
-    const k = a < inView ? '' : a > 130 ? 'turnBack' : deg > 0 ? 'turnRight' : 'turnLeft';
-    if (k === this.turn) return;
-    this.turn = k;
-    if (this.s.mode !== 'indoor') this.refreshWay();
   }
 
   /** Thẻ thông tin hiện vật 3D (null = ẩn). */
@@ -174,16 +155,16 @@ export class Hud {
   /** Trạng thái dẫn đường; chỉ vẽ lại khi chữ hoặc nút thay đổi. */
   setGuide(g: GuideState) {
     this.guide = { ...g };
-    if (this.s.mode !== 'guide') return;
+    if (this.s.mode === 'indoor') return;
     const key = this.guideKey();
     if (key !== this.guideShown) this.refreshWay();
   }
-  private guide: GuideState = { phase: 'idle', blocked: false, floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN, routeState: 'none' };
+  private guide: GuideState = { phase: 'idle', floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN, routeState: 'none' };
   private guideShown = '';
 
   private guideKey() {
     const g = this.guide;
-    return `${getLang()}|${g.phase}|${this.guideText()}`;
+    return `${getLang()}|${this.s.mode}|${g.phase}|${this.guideText()}`;
   }
 
   private guideText() {
@@ -194,7 +175,6 @@ export class Hud {
     if (g.phase === 'locating') return t('guideLocating') + (Number.isFinite(g.accuracy) ? ` · ${t('guideGps')(Math.round(g.accuracy))}` : '');
     if (g.phase === 'floor') return g.floorTo < g.floorNow ? t('guideGoDown')(g.floorTo) : t('guideGoUp')(g.floorTo);
     if (g.phase === 'arrived') return t('guideArrived')(name);
-    if (g.blocked) return t('guideBlocked');
     if (g.routeState === 'loading') return `${name} · ${t('guideRouting')}…`;
     const beeline = g.routeState === 'failed' ? ` · ${t('guideBeeline')}` : '';
     const m = g.remaining;
@@ -208,13 +188,17 @@ export class Hud {
     const g = this.guide;
     this.way.hidden = g.phase === 'idle';
     this.guideShown = this.guideKey();
+    const outdoor = this.s.mode === 'outdoor';
     const action = g.phase === 'floor'
       ? `<button class="btn" type="button" data-gfloor>${t('guideFloorDone')(g.floorTo)}</button>`
+      : outdoor
+      ? `<button class="btn" type="button" data-in aria-label="${t('arrived')}" title="${t('arrived')}">${t('arrivedShort')}</button>`
       : `<button class="btn btn--ghost" type="button" data-gchange>${t('guideChange')}</button>`;
     this.way.innerHTML = `
       <span class="wayfind__text" aria-live="polite">${this.guideText()}</span>
       ${action}
-      <button class="wayfind__x" type="button" data-gexit aria-label="${t('guideExit')}" title="${t('guideExit')}">×</button>`;
+      ${outdoor ? '' : `<button class="wayfind__x" type="button" data-gexit aria-label="${t('guideExit')}" title="${t('guideExit')}">×</button>`}`;
+    this.way.querySelector('[data-in]')?.addEventListener('click', () => this.h.arrived());
     this.way.querySelector('[data-gchange]')?.addEventListener('click', () => this.h.guideOpen?.());
     this.way.querySelector('[data-gfloor]')?.addEventListener('click', () => this.h.guideFloorDone?.());
     this.way.querySelector('[data-gexit]')?.addEventListener('click', () => this.h.guideExit?.());
@@ -251,19 +235,8 @@ export class Hud {
 
   private refreshWay() {
     this.way.classList.toggle('wayfind--compact', this.s.mode !== 'indoor');
-    if (this.s.mode === 'guide') {
-      this.refreshGuide();
-      return;
-    }
-    const out = this.s.mode === 'outdoor';
-    this.way.hidden = !out;
-    if (!out) return;
-    this.way.innerHTML = `
-      <span class="wayfind__text" aria-live="polite">${this.turn ? `<b style="font-weight:600">${t(this.turn)}</b>` : this.remaining > 2 ? t('outdoorLeft')(this.remaining) : t('outdoorNear')}</span>
-      <button class="btn btn--ghost" type="button" data-align aria-label="${t('outdoorAlign')}" title="${t('outdoorAlign')}">${t('outdoorAlignShort')}</button>
-      <button class="btn" type="button" data-in aria-label="${t('arrived')}" title="${t('arrived')}">${t('arrivedShort')}</button>`;
-    this.way.querySelector('[data-align]')!.addEventListener('click', () => this.h.outdoorAlign());
-    this.way.querySelector('[data-in]')!.addEventListener('click', () => this.h.arrived());
+    if (this.s.mode === 'indoor') this.way.hidden = true;
+    else this.refreshGuide();
   }
 
   refresh() {
@@ -282,6 +255,7 @@ export class Hud {
 
   openMenu() {
     const s = this.s;
+    const indoor = s.mode === 'indoor';
     const sw = (key: keyof Settings, label: string) =>
       `<label class="opt"><span>${label}</span><span class="switch"><input type="checkbox" data-k="${key}" ${s[key] ? 'checked' : ''}/><i></i></span></label>`;
     sheet(
@@ -293,13 +267,13 @@ export class Hud {
        ${sw('battery', t('battery'))}
        ${sw('reduceMotion', t('reduceMotion'))}
        ${sw('guide', t('guide'))}
-       <button class="opt-btn" type="button" data-stand>${t('standAt')}<small>${other('standAt')}</small></button>
-       <button class="opt-btn" type="button" data-recenter>${t('recenter')}<small>${other('recenter')}</small></button>
+       ${indoor ? `<button class="opt-btn" type="button" data-stand>${t('standAt')}<small>${other('standAt')}</small></button>
+       <button class="opt-btn" type="button" data-recenter>${t('recenter')}<small>${other('recenter')}</small></button>` : ''}
        <button class="opt-btn" type="button" data-tut>${t('tutorial')}</button>
        <button class="opt-btn" type="button" data-help>${t('help')}</button>
        <button class="opt-btn" type="button" data-lang>${t('language')}</button>
        ${this.xrActive ? '' : `<button class="opt-btn" type="button" data-guide>${t('guideMenu')}<small>${other('guideMenu')}</small></button>`}
-       <button class="opt-btn" type="button" data-refloor>${t('xrReplace')}<small>${other('xrReplace')}</small></button>
+       ${indoor ? `<button class="opt-btn" type="button" data-refloor>${t('xrReplace')}<small>${other('xrReplace')}</small></button>` : ''}
        ${this.xrActive ? `<button class="opt-btn" type="button" data-exitxr>${t('exitXr')}</button>` : ''}
        <p class="fine" style="margin-top:12px">${t('privacy')}</p>
        <div class="actions"><button class="btn btn--ghost" type="button" data-close>${t('close')}</button></div>`,
@@ -311,8 +285,8 @@ export class Hud {
           this.h.change({ density: parseFloat((e.target as HTMLInputElement).value) }),
         );
         sh.querySelector('[data-close]')!.addEventListener('click', close);
-        sh.querySelector('[data-stand]')!.addEventListener('click', () => { close(); this.openPanelPicker(); });
-        sh.querySelector('[data-recenter]')!.addEventListener('click', () => {
+        sh.querySelector('[data-stand]')?.addEventListener('click', () => { close(); this.openPanelPicker(); });
+        sh.querySelector('[data-recenter]')?.addEventListener('click', () => {
           close();
           sheet(this.root, `<h2>${t('recenter')}</h2><p class="en">${other('recenter')}</p><p>${t('recenterHint')}</p>
             <div class="actions"><button class="btn" type="button" data-ok>${t('recenter')}</button><button class="link" type="button" data-x>${t('close')}</button></div>`,

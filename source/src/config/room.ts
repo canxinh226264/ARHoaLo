@@ -1,5 +1,4 @@
 import roomJson from './room.json';
-import routeJson from './route.json';
 import markersJson from './markers.json';
 
 export type Vec3 = [number, number, number];
@@ -58,16 +57,7 @@ export interface Room {
   branchAnchors: BranchAnchor[];
 }
 
-export interface Route {
-  anchor: string;
-  startStandOff: number;
-  waypoints: Vec3[];
-  gate: { id: string; position: Vec3; arriveRadius: number };
-  ribbonWidth: number;
-}
-
 export const room = roomJson as unknown as Room;
-export const route = routeJson as unknown as Route;
 export const markers = markersJson as unknown as {
   outdoor: { id: string; physicalWidth: number; src: string }[];
   indoor: { id: string; physicalWidth: number; src: string }[];
