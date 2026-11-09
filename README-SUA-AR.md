@@ -36,13 +36,14 @@ Chế độ trong phòng không còn lấy kích thước từ tài liệu (`roo
 
 ## Hỏi đáp, mini map, thẻ văn bản và nhận ảnh cổng
 
-- **Hỏi đáp (Gemini):** nút **💬 Hỏi đáp** ở góc trên, cùng nút **Hỏi thêm** trên thẻ panel hoặc hiện vật. Khách gõ câu hỏi, nói (nếu trình duyệt hỗ trợ nhận giọng nói) hoặc bật 📷 để kèm ảnh camera. Nếu bật Âm thanh trong Tuỳ chọn, câu trả lời được đọc to.
+- **Hỏi đáp (Gemini):** icon hỏi đáp ở góc dưới bên trái, cùng nút **Hỏi thêm** trên thẻ panel hoặc hiện vật. Khách gõ câu hỏi, nói (nếu trình duyệt hỗ trợ nhận giọng nói) hoặc bật 📷 để kèm ảnh camera. Nếu bật Âm thanh trong Tuỳ chọn, câu trả lời được đọc to.
   - Câu hỏi đi qua `api/ask.mjs` (Vercel Function); key Gemini nằm ở máy chủ, không có trong web. **Cài đặt:** tạo key tại Google AI Studio → Vercel → Project → Settings → Environment Variables → thêm `GEMINI_API_KEY` → Redeploy. Tuỳ chọn: `GEMINI_MODEL` (mặc định `gemini-3.5-flash-lite`), `ALLOWED_ORIGINS`.
   - Trợ lý chỉ được trả lời theo `source/src/config/knowledge.json` và nội dung panel/hiện vật trong `artifacts.json`. Mục ghi `[CẦN BỔ SUNG]` (nhà vệ sinh, giờ mở cửa, nội dung panel…) sẽ được trả lời là chưa có thông tin; BTC điền vào rồi build lại.
   - Gói miễn phí: hạn mức tính chung cho mọi khách và nội dung gửi lên được Google dùng để cải thiện sản phẩm (đã ghi trong dòng quyền riêng tư của app). Mất mạng thì hỏi đáp báo không dùng được, phần AR vẫn chạy.
 - **Mini map:** hiện ở góc trên trái khi dẫn đường và trong chế độ ngoài phòng (cần quyền vị trí, tuyến đường xin một lần sau khi GPS sai số dưới 100 m), xoay theo hướng nhìn, chạm để phóng to. Đây là bản đồ lớn OpenStreetMap, chưa có sơ đồ riêng của bảo tàng. Nền là ô bản đồ OpenStreetMap (tile.openstreetmap.org, có ghi nguồn, chỉ hợp lượng dùng nhỏ); không tải được nền thì vẫn vẽ tuyến, vị trí và điểm đến.
 - **Ảnh mốc (MindAR), 13 ảnh trong `markers/artifacts.mind`:** 0–1 hiện vật 3D (chậu tôn, thùng gỗ); 2–10 panel F, A1–A4, B2, C4, C8, D11 → thẻ văn bản; 11–12 ảnh cổng G1 và biển tên G2 → đang dẫn đường mà camera thấy thì tự chuyển sang hoa đào rơi. Ảnh panel lấy từ hồ sơ thiết kế, thu về cạnh dài 400 px để file mốc gọn (4,1 MB); nên thay bằng file in chính thức. Thêm/đổi ảnh: sửa `artifacts.json` (giữ đúng thứ tự `targetIndex`), biên dịch lại bằng `tools/compile-targets.html`.
 - Thẻ văn bản và ảnh cổng chỉ cần nhận ra ảnh (không đặt model), nên hiện sau khoảng nửa giây.
+- Nút chế độ đọc chỉ hiện dưới thẻ văn bản của panel; đóng thẻ thì chế độ đọc bật từ nút này cũng tắt theo. Muốn giữ lâu dài thì bật trong Tuỳ chọn.
 
 ## Chạy lại hoặc chỉnh tiếp
 

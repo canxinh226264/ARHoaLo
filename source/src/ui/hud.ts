@@ -56,11 +56,10 @@ export class Hud {
   readonly el: HTMLElement;
   private handChip: HTMLElement;
   private modeChip: HTMLButtonElement;
-  private readBtn: HTMLButtonElement;
   private way: HTMLElement;
   private art: HTMLElement;
   private artState: { item: ArtifactCardItem | null; mode: string } = { item: null, mode: 'hidden' };
-  artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void } | null = null;
+  artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void; reading(): void } | null = null;
   private handState: 'off' | 'seen' | 'hold' | 'loading' = 'off';
   private remaining = 0;
   private turn: '' | 'turnLeft' | 'turnRight' | 'turnBack' = '';
@@ -72,24 +71,21 @@ export class Hud {
       <div class="hud__top">
         <div class="chip chip--hand" aria-live="polite">${icons.hand}<span></span></div>
         <div class="hud__right">
-          <button class="chip chip--ask" type="button" data-ask></button>
           <button class="chip" type="button" data-mode></button>
         </div>
       </div>
       <div class="wayfind" hidden></div>
       <div class="artcard" hidden></div>
       <div class="hud__bottom">
-        <button class="round round--left" type="button" data-read>${icons.book}</button>
+        <button class="round round--left" type="button" data-ask>${icons.chat}</button>
         <button class="shutter" type="button" data-shot></button>
         <button class="round round--right" type="button" data-menu>${icons.menu}</button>
       </div>`;
     this.handChip = this.el.querySelector('.chip--hand')!;
     this.modeChip = this.el.querySelector('[data-mode]')!;
-    this.readBtn = this.el.querySelector('[data-read]')!;
     this.way = this.el.querySelector('.wayfind')!;
     this.art = this.el.querySelector('.artcard')!;
     this.el.querySelector('[data-shot]')!.addEventListener('click', () => h.capture());
-    this.readBtn.addEventListener('click', () => h.change({ reading: !this.s.reading }));
     this.modeChip.addEventListener('click', () => h.setMode(this.s.mode === 'indoor' ? 'outdoor' : 'indoor'));
     this.el.querySelector('[data-menu]')!.addEventListener('click', () => this.openMenu());
     this.el.querySelector('[data-ask]')!.addEventListener('click', () => this.h.ask?.());
@@ -150,6 +146,7 @@ export class Hud {
       ${desc ? `<p>${desc}</p>` : ''}
       ${info ? '' : `<span class="hint">${t('artHint')}</span>`}
       <div class="row">
+        ${info ? `<button class="round round--sm" type="button" data-a="reading" aria-pressed="${this.s.reading}" aria-label="${t('reading')}" title="${t('reading')}">${icons.book}</button>` : ''}
         <button class="btn btn--ghost" type="button" data-a="ask">${t('askMore')}</button>
         ${info
           ? `<button class="btn" type="button" data-a="close">${t('artClose')}</button>`
@@ -160,7 +157,7 @@ export class Hud {
       </div>`;
     this.art.querySelectorAll<HTMLButtonElement>('[data-a]').forEach((b) =>
       b.addEventListener('click', () => {
-        const a = b.dataset.a as 'inspect' | 'reset' | 'close' | 'ask';
+        const a = b.dataset.a as 'inspect' | 'reset' | 'close' | 'ask' | 'reading';
         this.artHandlers?.[a]();
       }),
     );
@@ -253,7 +250,7 @@ export class Hud {
   }
 
   private refreshWay() {
-    this.way.classList.toggle('wayfind--compact', this.s.mode === 'guide');
+    this.way.classList.toggle('wayfind--compact', this.s.mode !== 'indoor');
     if (this.s.mode === 'guide') {
       this.refreshGuide();
       return;
@@ -262,25 +259,20 @@ export class Hud {
     this.way.hidden = !out;
     if (!out) return;
     this.way.innerHTML = `
-      <strong>${t('outdoorFollow')}</strong>
-      <span class="en">${other('outdoorFollow')}</span>
-      <span>${this.turn ? `<b style="font-weight:600">${t(this.turn)}</b>` : this.remaining > 2 ? t('outdoorLeft')(this.remaining) : t('arrivedNear')}</span>
-      <div class="row">
-        <button class="btn btn--ghost" type="button" data-align>${t('outdoorAlign')}</button>
-        <button class="btn" type="button" data-in>${t('arrived')}</button>
-      </div>`;
+      <span class="wayfind__text" aria-live="polite">${this.turn ? `<b style="font-weight:600">${t(this.turn)}</b>` : this.remaining > 2 ? t('outdoorLeft')(this.remaining) : t('outdoorNear')}</span>
+      <button class="btn btn--ghost" type="button" data-align aria-label="${t('outdoorAlign')}" title="${t('outdoorAlign')}">${t('outdoorAlignShort')}</button>
+      <button class="btn" type="button" data-in aria-label="${t('arrived')}" title="${t('arrived')}">${t('arrivedShort')}</button>`;
     this.way.querySelector('[data-align]')!.addEventListener('click', () => this.h.outdoorAlign());
     this.way.querySelector('[data-in]')!.addEventListener('click', () => this.h.arrived());
   }
 
   refresh() {
     const indoor = this.s.mode === 'indoor';
-    (this.el.querySelector('[data-ask]') as HTMLElement).innerHTML = `<span aria-hidden="true">💬</span><span>${t('askChip')}</span>`;
+    const ask = this.el.querySelector('[data-ask]') as HTMLElement;
+    ask.setAttribute('aria-label', t('askChip'));
+    ask.title = t('askChip');
     this.modeChip.innerHTML = `${indoor ? icons.door : icons.path}<span>${indoor ? t('modeIndoor') : this.s.mode === 'guide' ? t('modeGuide') : t('modeOutdoor')}</span>`;
     this.modeChip.setAttribute('aria-label', `${t('modeIndoor')} / ${t('modeOutdoor')}`);
-    this.readBtn.setAttribute('aria-pressed', String(this.s.reading));
-    this.readBtn.setAttribute('aria-label', t('reading'));
-    this.readBtn.style.visibility = indoor ? 'visible' : 'hidden';
     (this.el.querySelector('[data-shot]') as HTMLElement).setAttribute('aria-label', t('capture'));
     (this.el.querySelector('[data-menu]') as HTMLElement).setAttribute('aria-label', t('menu'));
     this.refreshHand();

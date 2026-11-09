@@ -119,6 +119,16 @@ const artTracker = new ArtifactTracker(
 const artViewer = new ArtifactViewer(R.scene, R.camera, R.gl, artifactItems);
 /** Thẻ văn bản đang hiện (panel), null nếu không có. */
 let infoItem: TargetItem | null = null;
+/** Chế độ đọc do nút trên thẻ bật: thẻ đóng thì nút biến mất nên phải tắt theo. */
+let readingFromCard = false;
+function hideInfoCard() {
+  infoItem = null;
+  hud?.setArtifact(null, 'hidden');
+  if (readingFromCard) {
+    readingFromCard = false;
+    handlers.change({ reading: false });
+  }
+}
 artTracker.onFound = (i) => {
   const item = targetItems.find((x) => x.targetIndex === i);
   if (!item) return;
@@ -133,7 +143,7 @@ artTracker.onFound = (i) => {
     hud?.setArtifact(item, 'info');
     if (navigator.vibrate) navigator.vibrate(8);
   } else {
-    infoItem = null;
+    if (infoItem) hideInfoCard();
     artViewer.show(i);
   }
 };
@@ -204,10 +214,13 @@ async function onStart() {
       const cur = currentItem();
       if (cur) askPanel.open(t('askAbout')(getLang() === 'vi' ? cur.titleVi : cur.titleEn));
     },
+    reading: () => {
+      handlers.change({ reading: !settings.reading });
+      readingFromCard = settings.reading;
+    },
     close: () => {
       if (infoItem) {
-        infoItem = null;
-        hud?.setArtifact(null, 'hidden');
+        hideInfoCard();
         return;
       }
       artViewer.close();
@@ -335,10 +348,7 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
       artTracker.paused = false;
       if (hand.status === 'ready') startArtifacts();
       if (artViewer.visible) artViewer.close();
-      if (infoItem) {
-        infoItem = null;
-        hud?.setArtifact(null, 'hidden');
-      }
+      if (infoItem) hideInfoCard();
       if (m === 'outdoor') {
         outdoor.progress = 0;
         sensors.recenter(-Math.PI / 2); // nhìn vào pano P

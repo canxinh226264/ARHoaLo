@@ -187,7 +187,6 @@ body.no-camera {
 .chip--hand.show { opacity: 1; transform: none; }
 .chip--hand.hold { background: var(--cobalt); color: var(--cream); }
 .hud__right { display: flex; gap: 8px; align-items: center; }
-.chip--ask { padding: 6px 14px 6px 12px; }
 .artcard--info p { max-height: 30svh; overflow: auto; }
 
 /* ---------- hỏi đáp ---------- */
@@ -236,6 +235,8 @@ body.no-camera {
 .round[aria-pressed='true'] { background: var(--cobalt); color: var(--cream); }
 .round--left { justify-self: start; }
 .round--right { justify-self: end; }
+.round--sm { flex: none; width: 44px; height: 44px; box-shadow: none; }
+.round--sm svg { width: 22px; height: 22px; }
 .shutter {
   width: 76px; height: 76px; border-radius: 50%; cursor: pointer;
   border: 4px solid var(--cream); background: rgba(252, 250, 240, 0.25);
@@ -281,7 +282,8 @@ body.no-camera {
 .artcard .en { display: block; font-size: var(--s-body); }
 .artcard p { margin: 6px 0 0; font-size: var(--s-body); line-height: 1.4; text-align: left; }
 .artcard .hint { display: block; margin-top: 6px; font-size: var(--s-sm); opacity: 0.8; }
-.artcard .row { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+.artcard .row { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 10px; }
+.artcard .round--sm:not([aria-pressed='true']) { background: transparent; border: 1.5px solid rgba(0, 83, 155, 0.3); }
 .artcard .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 22px; }
 .hud.has-art .chip--hand { visibility: hidden; }
 

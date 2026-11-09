@@ -16,6 +16,7 @@ export const icons = {
   door: s('<path d="M6 20V4h12v16M3.5 20h17"/><path d="M14.5 12h.01"/>'),
   path: s('<path d="M6 20c0-5 12-4 12-9S10 6 10 3"/><circle cx="10" cy="3" r="0.6"/>'),
   close: s('<path d="M6 6l12 12M18 6L6 18"/>'),
+  chat: s('<path d="M4 6.5h16v10.5H10l-4 3.5V17H4z"/><path d="M8.5 11.7h.01M12 11.7h.01M15.5 11.7h.01"/>'),
 };
 
 /** Minh hoạ onboarding (nét xanh cobalt, cánh hoa hồng). */
