@@ -1,40 +1,48 @@
 import * as THREE from 'three';
-import { room, HALF_W, type BranchAnchor } from '../config/room';
 import { theme, BRAND_PETAL_RATIO } from '../config/theme';
 import { getPetalAtlas, CELL } from './petal-textures';
 import { createPetalMaterial, type Emitter } from '../physics/petal-system';
 
 /**
- * Tán đào phủ trần hành lang (procedural – 0 byte tải về): cành mọc từ mép trên
- * hai bên tường, vươn qua giữa, kèm một lớp bóng cây mờ ở trên cùng.
- * Tán luôn hiện nên khi nhìn thẳng vẫn thấy ở mép trên khung hình, xa dần theo
- * hành lang; ngẩng lên thì thấy ngay trên đầu.
- * Không có thân cây: gốc cành nằm sau mép tường và mờ dần về phía gốc
- * (camera thật không che được vật ảo nên phải làm mờ thay vì "giấu").
+ * Tán đào phủ trần (procedural – 0 byte tải về), không phụ thuộc kích thước phòng định trước:
+ * các cụm cành xếp theo lưới quanh người xem, treo ở độ cao trần đo được, và ẩn cụm nằm ngoài
+ * tường đã thấy. Lưới "cuộn" theo người xem nên đi tới đâu trên đầu cũng có cành.
+ * Mỗi cụm kèm một lớp bóng cây mờ sát trần.
+ * Không có thân cây: gốc cành mờ dần (camera thật không che được vật ảo nên phải làm mờ thay vì "giấu").
  */
 
-/** Độ cao lớp bóng cây, trên các cành một chút (m). */
-const SHADE_Y = 3.15;
-const SHADE_X0 = -6;
-const SHADE_X1 = room.corridor.length + 2;
-const SHADE_HALF_Z = HALF_W + 0.15;
-const SHADE_PX_PER_M = 48;
+const GRID = 6; // số cụm mỗi cạnh
+const SPACING = 2; // m
+const SPAN = GRID * SPACING;
+/** Gốc cành thấp hơn trần chừng này (m) để tán không xuyên lên trên trần. */
+const ROOT_BELOW = 0.35;
+const SHADE_SIZE = 6; // m
+const SHADE_PX = 256;
 
-/** Nét vẽ bóng cây trên mặt phẳng XZ, toạ độ phòng. */
+/** Nét vẽ bóng cây trên mặt phẳng XZ, toạ độ cục bộ của một cụm. */
 interface ShadeSketch {
   limbs: { pts: THREE.Vector3[]; width: number }[];
   spots: THREE.Vector3[];
 }
 
+interface Holder {
+  group: THREE.Group;
+  baseX: number;
+  baseZ: number;
+  /** Lệch từ gốc tới giữa cụm, dùng để xét cụm có nằm trong phòng không. */
+  midZ: number;
+  scale: number;
+  target: number;
+  local: THREE.Vector3[];
+  world: THREE.Vector3[];
+}
+
 function buildShade(sk: ShadeSketch) {
-  const W = Math.round((SHADE_X1 - SHADE_X0) * SHADE_PX_PER_M);
-  const H = Math.round(SHADE_HALF_Z * 2 * SHADE_PX_PER_M);
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = c.height = SHADE_PX;
   const ctx = c.getContext('2d')!;
-  const px = (x: number) => (x - SHADE_X0) * SHADE_PX_PER_M;
-  const pz = (z: number) => (z + SHADE_HALF_Z) * SHADE_PX_PER_M;
+  const k = SHADE_PX / SHADE_SIZE;
+  const px = (v: number) => (v + SHADE_SIZE / 2) * k;
   // đốm mềm dùng lại cho mọi cụm hoa
   const blob = document.createElement('canvas');
   blob.width = blob.height = 32;
@@ -45,36 +53,29 @@ function buildShade(sk: ShadeSketch) {
   bx.fillStyle = g;
   bx.fillRect(0, 0, 32, 32);
   ctx.globalAlpha = 0.16;
-  const size = 0.42 * SHADE_PX_PER_M;
-  for (const s of sk.spots) ctx.drawImage(blob, px(s.x) - size / 2, pz(s.z) - size / 2, size, size);
+  const size = 0.42 * k;
+  for (const s of sk.spots) ctx.drawImage(blob, px(s.x) - size / 2, px(s.z) - size / 2, size, size);
   ctx.globalAlpha = 0.5;
   ctx.strokeStyle = '#000';
   ctx.lineCap = 'round';
   for (const l of sk.limbs) {
-    ctx.lineWidth = l.width * SHADE_PX_PER_M;
+    ctx.lineWidth = l.width * k;
     ctx.beginPath();
-    l.pts.forEach((p, i) => (i ? ctx.lineTo(px(p.x), pz(p.z)) : ctx.moveTo(px(p.x), pz(p.z))));
+    l.pts.forEach((p, i) => (i ? ctx.lineTo(px(p.x), px(p.z)) : ctx.moveTo(px(p.x), px(p.z))));
     ctx.stroke();
   }
-  // mờ dần về phía tường để không có mép cắt thẳng
+  // mờ dần ra rìa để không có mép cắt thẳng
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'destination-in';
-  const edge = ctx.createLinearGradient(0, 0, 0, H);
-  edge.addColorStop(0, 'rgba(0,0,0,0)');
-  edge.addColorStop(0.14, 'rgba(0,0,0,1)');
-  edge.addColorStop(0.86, 'rgba(0,0,0,1)');
+  const edge = ctx.createRadialGradient(SHADE_PX / 2, SHADE_PX / 2, SHADE_PX * 0.3, SHADE_PX / 2, SHADE_PX / 2, SHADE_PX / 2);
+  edge.addColorStop(0, 'rgba(0,0,0,1)');
   edge.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = edge;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, SHADE_PX, SHADE_PX);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 });
-  const geo = new THREE.PlaneGeometry(SHADE_X1 - SHADE_X0, SHADE_HALF_Z * 2).rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set((SHADE_X0 + SHADE_X1) / 2, SHADE_Y, 0);
-  mesh.renderOrder = -1;
-  return mesh;
+  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 });
 }
 
 function rng(seed: number) {
@@ -168,7 +169,8 @@ export class Branches {
   private sways: { g: THREE.Group; seed: number }[] = [];
   private blossoms: { mesh: THREE.InstancedMesh; full: number }[] = [];
   private details: THREE.InstancedMesh[] = [];
-  private shade: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  private shade: THREE.MeshBasicMaterial;
+  readonly holders: Holder[] = [];
   private t = 0;
   visibility = 0;
 
@@ -176,15 +178,25 @@ export class Branches {
     this.blossomMat = createPetalMaterial(getPetalAtlas().texture);
     this.blossomMat.uniforms.uCurl.value = 0;
     this.blossomMat.depthWrite = false;
-    const zones = room.exclusionZones.filter((z) => z.forbid.includes('branches'));
     const sketch: ShadeSketch = { limbs: [], spots: [] };
-    for (const a of room.branchAnchors) {
-      const blocked = zones.some((z) => a.x >= z.min[0] && a.x <= z.max[0]);
-      if (blocked) continue;
-      this.build(a, sketch);
+    for (let r = 0; r < GRID; r++) {
+      for (let c = 0; c < GRID; c++) {
+        const seed = 11 + (r * GRID + c) * 7;
+        const R = rng(seed + 1);
+        const x = (c - GRID / 2 + 0.5) * SPACING + (R() - 0.5) * 0.7;
+        const z = (r - GRID / 2 + 0.5) * SPACING + (R() - 0.5) * 0.7;
+        this.build(x, z, seed, (r + c) % 2 ? 1 : -1, 2.3 + (c % 3) * 0.25, r === 0 && c === 0 ? sketch : null);
+      }
     }
     this.shade = buildShade(sketch);
-    this.group.add(this.shade);
+    const shadeGeo = new THREE.PlaneGeometry(SHADE_SIZE, SHADE_SIZE).rotateX(-Math.PI / 2);
+    this.holders.forEach((h, i) => {
+      const plane = new THREE.Mesh(shadeGeo, this.shade);
+      plane.position.y = ROOT_BELOW;
+      plane.rotation.y = i * 1.57;
+      plane.renderOrder = -1;
+      h.group.add(plane);
+    });
     this.group.visible = false;
     parent.add(this.group);
   }
@@ -195,21 +207,37 @@ export class Branches {
     for (const m of this.details) m.visible = k > 0.7;
   }
 
-  private build(a: BranchAnchor, sketch: ShadeSketch) {
-    const R = rng(a.seed);
-    const top = room.corridor.ceiling != null ? Math.min(a.y, room.corridor.ceiling - 0.45) : a.y;
-    const inward = a.z >= 0 ? -1 : 1; // mọc từ tường vào giữa hành lang
-    const root = new THREE.Vector3(a.x, top - 0.05, a.z - inward * 0.3);
+  /**
+   * Đặt tán theo vị trí người xem và phòng đo được.
+   * @param cx, cz vị trí người xem
+   * @param ceiling chiều cao trần (m)
+   * @param isInside điểm có nằm trong phòng không
+   */
+  layout(cx: number, cz: number, ceiling: number, isInside: (x: number, z: number) => boolean) {
+    const wrap = (d: number) => ((((d + SPAN / 2) % SPAN) + SPAN) % SPAN) - SPAN / 2;
+    this.emitter.points.length = 0;
+    for (const h of this.holders) {
+      const x = cx + wrap(h.baseX - cx);
+      const z = cz + wrap(h.baseZ - cz);
+      h.group.position.set(x, ceiling - ROOT_BELOW, z);
+      h.target = isInside(x, z + h.midZ) ? 1 : 0;
+      if (!h.target) continue;
+      for (let i = 0; i < h.local.length; i++) this.emitter.points.push(h.world[i].copy(h.local[i]).add(h.group.position));
+    }
+  }
+
+  private build(baseX: number, baseZ: number, seed: number, inward: number, reach: number, sketch: ShadeSketch | null) {
+    const R = rng(seed);
     const holder = new THREE.Group();
-    holder.position.copy(root);
     const g = new THREE.Group();
     holder.add(g);
     this.group.add(holder);
-    this.sways.push({ g, seed: a.seed });
+    this.sways.push({ g, seed });
+    const local_: THREE.Vector3[] = [];
+    this.holders.push({ group: holder, baseX, baseZ, midZ: inward * reach * 0.5, scale: 1, target: 1, local: local_, world: [] });
 
     const dir = R() < 0.5 ? 1 : -1;
     const local = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-    const reach = Math.min(a.reach, room.corridor.width + 0.3);
     const main = new THREE.CatmullRomCurve3([
       local(0, 0, 0),
       local(dir * 0.15, 0.12, inward * 0.5),
@@ -221,7 +249,7 @@ export class Branches {
     const flowerSpots: THREE.Vector3[] = [];
     const mainLen = main.getLength();
     const addLimb = (curve: THREE.Curve<THREE.Vector3>, width: number) => {
-      sketch.limbs.push({ pts: curve.getPoints(8).map((p) => p.clone().add(root)), width });
+      sketch?.limbs.push({ pts: curve.getPoints(8), width });
     };
     addLimb(main, 0.11);
 
@@ -260,7 +288,7 @@ export class Branches {
     }
     addTwigs(main, mainLen, 0, 7);
     for (let s = 0; s < 16; s++) flowerSpots.push(main.getPointAt(0.34 + (s / 15) * 0.66));
-    for (const s of flowerSpots) sketch.spots.push(s.clone().add(root));
+    if (sketch) sketch.spots.push(...flowerSpots);
     const bark = new THREE.Mesh(mergeGeometries(geos), barkMaterial);
     for (const geo of geos) geo.dispose();
     bark.renderOrder = 0;
@@ -302,9 +330,8 @@ export class Branches {
       flowers.setMatrixAt(i, m);
       cells[i] = brand ? CELL.blossomBrand : CELL.blossomPink[(R() * 2) | 0];
       tints.set([1, 1, 1, 1], i * 4);
-      // điểm rụng hoa (toạ độ phòng; x < 0 nằm ngoài hành lang nên hoa rơi sẽ bị loại ngay)
-      const world = p.clone().add(root);
-      if (i % 3 === 0 && world.x > 0.1) this.emitter.points.push(world);
+      // điểm rụng hoa (toạ độ cục bộ của cụm, layout() đổi sang toạ độ phòng)
+      if (i % 3 === 0) local_.push(p.clone());
     }
     for (let i = 0; i < flowerSpots.length; i++) {
       const p = flowerSpots[i].clone().add(new THREE.Vector3((R() - 0.5) * 0.1, -0.01, (R() - 0.5) * 0.1));
@@ -325,6 +352,7 @@ export class Branches {
       mesh.computeBoundingSphere();
       mesh.boundingSphere!.radius += 0.25;
     }
+    this.holders[this.holders.length - 1].world = local_.map(() => new THREE.Vector3());
     this.blossoms.push({ mesh: flowers, full: n });
     this.details.push(buds, leaves);
     g.add(flowers, buds, leaves);
@@ -345,7 +373,12 @@ export class Branches {
     (this.blossomMat.uniforms.uLight.value as THREE.Color).copy(light);
     this.budMat.opacity = v;
     this.leafMat.opacity = v * 0.9;
-    this.shade.material.opacity = v * 0.38;
+    this.shade.opacity = v * 0.38;
+    for (const h of this.holders) {
+      h.scale += (h.target - h.scale) * Math.min(1, dt * 4);
+      h.group.visible = h.scale > 0.01;
+      h.group.scale.setScalar(Math.max(0.001, h.scale));
+    }
     const amp = reduceMotion ? 0.004 : 0.015;
     for (const s of this.sways) {
       s.g.rotation.x = Math.sin(this.t * 0.9 + s.seed) * amp;
@@ -355,6 +388,3 @@ export class Branches {
     this.emitter.rate = v > 0.3 ? (3 + 7 * lookUp) * v : 0;
   }
 }
-
-/** Dùng trong debug: nửa bề rộng hành lang để vẽ khung tham chiếu. */
-export const _HALF_W = HALF_W;

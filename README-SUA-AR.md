@@ -7,8 +7,18 @@ Bản chạy nằm ngay trong thư mục này (`index.html`, `assets`, `sw.js`).
 - Camera thường: ẩn hoa đọng khi chưa xác định được vùng sàn, chỉ học màu từ vùng gần phía dưới màn hình sau khoảng 0,7 giây ổn định. Không học từ vùng xa 8 m như trước; loại vùng vừa bị vật khác che ngay. Thiếu cảm biến, cảm biến ngừng gửi dữ liệu hoặc camera trước thì không đoán vùng sàn.
 - AR nâng cao: dùng cùng hệ tọa độ với bộ vẽ, yêu cầu bề mặt ngang có nhiều điểm trải rộng và ổn định qua nhiều khung hình; bỏ dữ liệu quét cũ. Chỉ dùng bề mặt gần nhất của mỗi tia, không đặt xuyên mặt bàn. Quyền đặt lấy theo khung hình hiện tại; bỏ tính năng tự cho đặt theo độ cao giả định sau 10 giây.
 - Có **Tuỳ chọn → Đặt lại mặt sàn** trong cả hai chế độ. Khi bắt đầu, hướng camera xuống vùng sàn trống gần chân, giữ khoảng một giây rồi lia chậm.
-- Tán đào: 36 cụm cành cách khoảng 0,85 m, phủ hết hành lang 26 m; tăng nhánh con và cụm hoa. Khoảng 40.826 bông ở mức cao, 22.450 ở mức thấp, dùng instancing. Vùng cuối hành lang trước đây cấm cành ảo nay cũng được phủ theo yêu cầu.
+- Tán đào: 36 cụm cành xếp theo lưới 2 m quanh người xem, treo theo trần đo được (xem mục "Tự đo phòng"), dùng instancing.
 - Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
+
+## Tự đo phòng (không dùng kích thước cố định)
+
+Chế độ trong phòng không còn lấy kích thước từ tài liệu (`room.json` chỉ còn dùng cho giá trị phụ). Khi vào phòng, hướng camera xuống sàn trống gần chân, giữ khoảng một giây rồi lia từ chân tường lên trần.
+
+- **Sàn và tường:** mặt nạ sàn từ camera được chiếu xuống một bản đồ ô 0,2 m, nhớ trong 3 phút. Dải vật cản dài từ 1 m trở lên theo hướng nhìn mới tính là tường, nên bàn ghế không bị coi là tường. Mỗi lần nhìn chỉ thấy chừng 4,5 m; hướng nào chưa thấy tường thì coi là còn trong phòng.
+- **Trần:** camera thường lấy màu trần ở vùng trên đầu, tìm mép trần–tường, rồi tính cao = mắt + khoảng cách tới tường × tan(góc ngẩng), lấy trung vị nhiều hướng. AR nâng cao dùng mặt phẳng trần nếu ARCore thấy được.
+- **Hoa và cành:** hoa sinh trong vùng đã đo, rơi từ trần xuống sàn, bay qua tường thì mờ đi. Cành treo cách trần 0,35 m, lưới cuộn theo người xem, cụm nằm ngoài tường thì ẩn.
+- **Đặt lại mặt sàn** cũng xoá kết quả đo để đo lại từ đầu.
+- Giới hạn: chiều cao mắt giả định 1,45 m nên tỉ lệ có sai số. Trần và tường cùng màu thì không tìm được mép, app dùng mặc định 2,8 m. ARCore hiếm khi nhận được trần, nên AR nâng cao thường dùng giá trị mặc định này.
 
 ## Dẫn đường tới Cổng Parabol (thử nghiệm)
 
@@ -30,7 +40,7 @@ Bản chạy nằm ngay trong thư mục này (`index.html`, `assets`, `sw.js`).
   - Câu hỏi đi qua `api/ask.mjs` (Vercel Function); key Gemini nằm ở máy chủ, không có trong web. **Cài đặt:** tạo key tại Google AI Studio → Vercel → Project → Settings → Environment Variables → thêm `GEMINI_API_KEY` → Redeploy. Tuỳ chọn: `GEMINI_MODEL` (mặc định `gemini-3.5-flash-lite`), `ALLOWED_ORIGINS`.
   - Trợ lý chỉ được trả lời theo `source/src/config/knowledge.json` và nội dung panel/hiện vật trong `artifacts.json`. Mục ghi `[CẦN BỔ SUNG]` (nhà vệ sinh, giờ mở cửa, nội dung panel…) sẽ được trả lời là chưa có thông tin; BTC điền vào rồi build lại.
   - Gói miễn phí: hạn mức tính chung cho mọi khách và nội dung gửi lên được Google dùng để cải thiện sản phẩm (đã ghi trong dòng quyền riêng tư của app). Mất mạng thì hỏi đáp báo không dùng được, phần AR vẫn chạy.
-- **Mini map:** hiện ở góc trên trái khi dẫn đường, xoay theo hướng nhìn, chạm để phóng to. Nền là ô bản đồ OpenStreetMap (tile.openstreetmap.org, có ghi nguồn, chỉ hợp lượng dùng nhỏ); không tải được nền thì vẫn vẽ tuyến, vị trí và điểm đến.
+- **Mini map:** hiện ở góc trên trái khi dẫn đường và trong chế độ ngoài phòng (cần quyền vị trí, tuyến đường xin một lần sau khi GPS sai số dưới 100 m), xoay theo hướng nhìn, chạm để phóng to. Đây là bản đồ lớn OpenStreetMap, chưa có sơ đồ riêng của bảo tàng. Nền là ô bản đồ OpenStreetMap (tile.openstreetmap.org, có ghi nguồn, chỉ hợp lượng dùng nhỏ); không tải được nền thì vẫn vẽ tuyến, vị trí và điểm đến.
 - **Ảnh mốc (MindAR), 13 ảnh trong `markers/artifacts.mind`:** 0–1 hiện vật 3D (chậu tôn, thùng gỗ); 2–10 panel F, A1–A4, B2, C4, C8, D11 → thẻ văn bản; 11–12 ảnh cổng G1 và biển tên G2 → đang dẫn đường mà camera thấy thì tự chuyển sang hoa đào rơi. Ảnh panel lấy từ hồ sơ thiết kế, thu về cạnh dài 400 px để file mốc gọn (4,1 MB); nên thay bằng file in chính thức. Thêm/đổi ảnh: sửa `artifacts.json` (giữ đúng thứ tự `targetIndex`), biên dịch lại bằng `tools/compile-targets.html`.
 - Thẻ văn bản và ảnh cổng chỉ cần nhận ra ảnh (không đặt model), nên hiện sau khoảng nửa giây.
 

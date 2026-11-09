@@ -109,7 +109,9 @@ export class PetalSystem {
   lookUp = 0; // 0..1 khi ngẩng lên
   lookDown = 0; // 0..1 khi cúi xuống
   enabled = true;
-  bounded = true; // giới hạn trong hành lang
+  bounded = true; // giới hạn trong hành lang cố định (room.json)
+  /** Phòng đo được từ camera: hoa sinh trong phòng, rơi từ trần. */
+  room: { ceilingY: number; isInside(x: number, z: number): boolean } | null = null;
   sources: ColliderSource[] = [];
   emitters: Emitter[] = [];
   /** Vùng sàn nhìn thấy trên màn hình (chế độ camera); null = tin mặt sàn y = 0. */
@@ -287,15 +289,23 @@ export class PetalSystem {
     if (fh.lengthSq() < 0.01) fh.set(1, 0, 0);
     fh.normalize();
     const side = _s.set(-fh.z, 0, fh.x);
-    const ahead = 0.6 + Math.random() * 5.2;
-    const lat = (Math.random() - 0.5) * 3.2;
-    let x = camPos.x + fh.x * ahead + side.x * lat;
-    let z = camPos.z + fh.z * ahead + side.z * lat;
+    let x = camPos.x, z = camPos.z;
+    // thử vài vị trí, càng về sau càng gần người, để hoa nằm trong phòng đã đo
+    for (let k = 0; k < 6; k++) {
+      const ahead = 0.6 + Math.random() * 5.2 * (1 - k / 6);
+      const lat = (Math.random() - 0.5) * 3.2 * (1 - k / 6);
+      x = camPos.x + fh.x * ahead + side.x * lat;
+      z = camPos.z + fh.z * ahead + side.z * lat;
+      if (!this.room || this.room.isInside(x, z)) break;
+    }
     if (this.bounded) {
       x = THREE.MathUtils.clamp(x, 0.1, LEN - 0.1);
       z = THREE.MathUtils.clamp(z, -HALF_W + 0.12, HALF_W - 0.12);
     }
-    const y = initial ? 0.3 + Math.random() * 3 : 2.5 + Math.random() * 0.9;
+    const ceil = this.room?.ceilingY;
+    const y = ceil !== undefined
+      ? initial ? 0.3 + Math.random() * (ceil - 0.3) : ceil - Math.random() * 0.4
+      : initial ? 0.3 + Math.random() * 3 : 2.5 + Math.random() * 0.9;
     this.spawn(x, y, z, 0, -0.25 * this.speed, 0);
   }
 
@@ -319,9 +329,15 @@ export class PetalSystem {
       // lớp hoa đã đọng sẵn trên sàn / mặt bàn quanh người – không bắt đầu từ sàn trống
       for (let k = 0; k < this.maxResting * 0.4; k++) {
         const a = Math.random() * Math.PI * 2;
-        const r = 0.4 + Math.pow(Math.random(), 0.7) * 4.5;
+        let r = 0.4 + Math.pow(Math.random(), 0.7) * 4.5;
+        const squash = this.bounded ? 0.6 : 1; // hành lang hẹp ngang, phòng thì trải đều
         let x = camPos.x + Math.cos(a) * r;
-        let z = camPos.z + Math.sin(a) * r * 0.6;
+        let z = camPos.z + Math.sin(a) * r * squash;
+        for (let t = 0; t < 4 && this.room && !this.room.isInside(x, z); t++) {
+          r *= 0.7;
+          x = camPos.x + Math.cos(a) * r;
+          z = camPos.z + Math.sin(a) * r * squash;
+        }
         if (this.bounded) {
           x = THREE.MathUtils.clamp(x, 0.1, LEN - 0.1);
           z = THREE.MathUtils.clamp(z, -HALF_W + 0.1, HALF_W - 0.1);
@@ -455,7 +471,7 @@ export class PetalSystem {
         p.y += this.vel[i3 + 1] * dt;
         p.z += this.vel[i3 + 2] * dt;
         _s.set(this.vel[i3], this.vel[i3 + 1], this.vel[i3 + 2]);
-        if (pushOutOfTable(p, _s)) {
+        if (this.bounded && pushOutOfTable(p, _s)) {
           this.vel[i3] = _s.x;
           this.vel[i3 + 2] = _s.z;
         }
@@ -472,6 +488,8 @@ export class PetalSystem {
         }
         if (this.bounded) {
           if (Math.abs(p.z) > HALF_W - 0.02 || p.x < 0 || p.x > LEN) this.state[i] = S.Fading;
+        } else if (this.room && !this.room.isInside(p.x, p.z)) {
+          this.state[i] = S.Fading; // bay xuyên qua tường đã đo
         }
         // rơi quá xa người dùng → tái chế
         if (Math.abs(p.x - camPos.x) > 10 || Math.abs(p.z - camPos.z) > 10 || p.y > 6) this.state[i] = S.Dead;

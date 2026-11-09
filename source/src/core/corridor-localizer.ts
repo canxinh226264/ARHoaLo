@@ -17,6 +17,8 @@ export class CorridorLocalizer {
   sigma = 0.5; // độ bất định vị trí theo X (m)
   lastFix: string | null = null;
   enabled = true;
+  /** Giới hạn trong hành lang cố định; tắt khi đo phòng từ camera. */
+  bounded = false;
   private target = this.position.clone();
 
   onStep(forward: THREE.Vector3) {
@@ -25,8 +27,8 @@ export class CorridorLocalizer {
     if (f.lengthSq() < 0.04) return; // đang nhìn thẳng lên/xuống – bỏ qua
     f.normalize();
     const s = room.user.strideMeters;
-    this.target.x += f.x * s * 0.95;
-    this.target.z += f.z * s * 0.25;
+    this.target.x += f.x * s * (this.bounded ? 0.95 : 1);
+    this.target.z += f.z * s * (this.bounded ? 0.25 : 1);
     this.clamp();
     this.sigma = Math.min(3, this.sigma + 0.06);
   }
@@ -63,6 +65,7 @@ export class CorridorLocalizer {
   }
 
   private clamp() {
+    if (!this.bounded) return;
     this.target.x = THREE.MathUtils.clamp(this.target.x, 0.3, LEN - 0.3);
     this.target.z = THREE.MathUtils.clamp(this.target.z, -HALF_W + 0.35, HALF_W - 0.35);
   }

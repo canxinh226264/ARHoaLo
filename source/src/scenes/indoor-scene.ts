@@ -17,6 +17,7 @@ export class IndoorScene {
   constructor(parent: THREE.Object3D) {
     parent.add(this.root);
     this.petals = new PetalSystem(this.root, { capacity: 1600 });
+    this.petals.bounded = false; // không dùng kích thước cố định: phòng được đo từ camera
     this.branches = new Branches(this.root);
     this.petals.emitters.push(this.branches.emitter);
     this.guide = buildGuide();

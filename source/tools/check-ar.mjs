@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/guide-planner'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { FloorDetector, FloorVision, XRAdapter, Branches, GuidePlanner, GuideScene, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -100,29 +100,30 @@ test('XR uses only nearest hit, preserving center ray identity if a source fails
   for (let i = 0; i < 80; i++) { xr.detector.observeCamera(0, i / 60); xr.scan(frame, i / 60); }
   assert.equal(xr.detector.floorY, null);
 });
-test('Canopy covers the entire corridor and remains spread at low detail', () => {
-  // Geometry only: drawing calls are irrelevant to the spatial coverage test.
+test('Canopy follows the measured ceiling and the viewer, and hides behind walls', () => {
   const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
   globalThis.document = { createElement: () => ({ getContext: () => ctx }) };
   const b = new Branches(new THREE.Group());
-  assert.equal(b.sways.length, 36);
-  b.group.updateMatrixWorld(true);
-  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-  const coverage = () => {
-    const bins = new Set(); let count = 0;
-    b.group.traverse(o => {
-      if (!o.isInstancedMesh || o.material !== b.blossomMat) return;
-      count += o.count;
-      for (let i = 0; i < o.count; i++) {
-        o.getMatrixAt(i, m); m.decompose(p, q, s); p.applyMatrix4(o.matrixWorld);
-        if (p.x >= 0 && p.x < 26 && Math.abs(p.z) < 1.25) bins.add(`${Math.floor(p.x * 2)},${Math.floor((p.z + 1.25) * 2)}`);
-      }
-    });
-    return { count, coverage: bins.size / (52 * 5) };
-  };
-  const high = coverage(); b.setDetail(0.55); const low = coverage();
-  assert.ok(high.coverage > 0.97, JSON.stringify(high)); assert.ok(low.coverage > 0.95, JSON.stringify(low));
-  assert.ok(low.count < high.count); console.log('Canopy:', { high, low });
+  assert.equal(b.holders.length, 36);
+  b.layout(0, 0, 3.4, () => true);
+  assert.ok(b.holders.every((h) => near(h.group.position.y, 3.05, 1e-6)));
+  assert.ok(b.holders.every((h) => Math.abs(h.group.position.x) <= 6 && Math.abs(h.group.position.z) <= 6));
+  const all = b.emitter.points.length;
+  assert.ok(all > 1000);
+  // trần thấp hơn thì tán hạ theo
+  b.layout(0, 0, 2.6, () => true);
+  assert.ok(b.holders.every((h) => near(h.group.position.y, 2.25, 1e-6)));
+  // đi xa: tán cuộn theo người xem
+  b.layout(30, -17, 2.6, () => true);
+  assert.ok(b.holders.every((h) => Math.abs(h.group.position.x - 30) <= 6 && Math.abs(h.group.position.z + 17) <= 6));
+  // tường ở x = 2: các cụm ngoài tường bị ẩn, không rụng hoa từ đó
+  b.layout(0, 0, 2.6, (x) => x < 2);
+  const hidden = b.holders.filter((h) => h.target === 0);
+  assert.ok(hidden.length > 5 && hidden.every((h) => h.group.position.x >= 2));
+  assert.ok(b.emitter.points.length < all && b.emitter.points.every((p) => p.x < 4));
+  b.update(5, 1, 0, new THREE.Color(1, 1, 1), false);
+  assert.ok(hidden.every((h) => !h.group.visible));
+  b.setDetail(0.55);
 });
 
 // ---------------------------------------------------------------- dải sáng dẫn đường
@@ -538,4 +539,97 @@ test('Image targets: unique indices, known kinds, image files present', async ()
   }
   assert.ok(cfg.items.some((i) => i.kind === 'enter'));
   assert.ok(fs.statSync('../' + cfg.targets).size > 0);
+});
+
+// ---------------------------------------------------------------- đo phòng từ camera
+/** Dựng một căn phòng hộp để sinh ảnh camera và mặt nạ sàn đúng hình học. */
+function boxRoom({ x0, x1, z0, z1, h, eye = 1.45 }) {
+  const WALL = [200, 190, 170], CEIL = [245, 245, 250], FLOOR = [150, 100, 70];
+  const camera = (yaw, pitch) => {
+    const cam = new THREE.PerspectiveCamera(67, 9 / 16, 0.1, 100);
+    cam.rotation.order = 'YXZ';
+    cam.rotation.set(pitch, yaw, 0);
+    cam.position.set(0, eye, 0);
+    cam.updateMatrixWorld();
+    cam.updateProjectionMatrix();
+    return cam;
+  };
+  const hit = (d) => {
+    const ts = [];
+    if (d.x > 0) ts.push((x1 - 0) / d.x); else if (d.x < 0) ts.push((x0 - 0) / d.x);
+    if (d.z > 0) ts.push((z1 - 0) / d.z); else if (d.z < 0) ts.push((z0 - 0) / d.z);
+    const wall = Math.min(...ts);
+    const y = eye + d.y * wall;
+    if (y < 0) return 'floor';
+    if (y > h) return 'ceiling';
+    return 'wall';
+  };
+  const render = (cam) => {
+    const rgba = new Uint8ClampedArray(W * H * 4), mask = new Float32Array(W * H);
+    const v = new THREE.Vector3();
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      v.set(((c + 0.5) / W) * 2 - 1, 1 - ((r + 0.5) / H) * 2, 0.5).applyMatrix4(cam.projectionMatrixInverse).applyQuaternion(cam.quaternion).normalize();
+      const kind = hit(v);
+      rgba.set([...(kind === 'floor' ? FLOOR : kind === 'ceiling' ? CEIL : WALL), 255], (r * W + c) * 4);
+      mask[r * W + c] = kind === 'floor' ? 1 : 0;
+    }
+    return { rgba, mask };
+  };
+  return { camera, render, eye };
+}
+function scanRoom(room, map, ceil) {
+  const pos = new THREE.Vector3(0, room.eye, 0);
+  for (const pitch of [-0.75, -0.45, 0.2, 0.75, 1.0]) {
+    for (let a = 0; a < 24; a++) {
+      const yaw = (a / 24) * Math.PI * 2;
+      const cam = room.camera(yaw, pitch);
+      const { rgba, mask } = room.render(cam);
+      map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
+      ceil.update(rgba, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
+    }
+  }
+}
+for (const [name, spec] of [
+  ['small office', { x0: -2, x1: 3, z0: -2.5, z1: 2, h: 2.7 }],
+  ['tall hall', { x0: -3, x1: 4, z0: -3, z1: 3.5, h: 4.2 }],
+]) {
+  test(`Room is measured from the camera: ${name}`, () => {
+    const room = boxRoom(spec);
+    const map = new GuidePlanner(180), ceil = new CeilingVision();
+    assert.equal(ceil.height, DEFAULT_CEILING);
+    assert.equal(ceil.measured, false);
+    scanRoom(room, map, ceil);
+    assert.equal(ceil.measured, true);
+    assert.ok(Math.abs(ceil.height - spec.h) < spec.h * 0.12, `trần ${ceil.height.toFixed(2)} so với ${spec.h}`);
+    // tường đo được đúng hướng, sai số trong khoảng một ô bản đồ
+    const east = map.wallAlong(0, 0, 1, 0);
+    assert.ok(east !== null && Math.abs(east - spec.x1) < 0.5, `tường Đông ${east}`);
+    assert.equal(map.isInside(0, 0, spec.x1 - 1, 0), true);
+    assert.equal(map.isInside(0, 0, spec.x1 + 1, 0), false);
+    assert.equal(map.isInside(0, 0, 0, spec.z0 - 1), false);
+  });
+}
+test('Ceiling stays at the default when walls and ceiling share one colour', () => {
+  const room = boxRoom({ x0: -2, x1: 3, z0: -2.5, z1: 2, h: 3.5 });
+  const map = new GuidePlanner(180), ceil = new CeilingVision();
+  const pos = new THREE.Vector3(0, room.eye, 0);
+  for (const pitch of [-0.75, 0.75, 1.0]) for (let a = 0; a < 24; a++) {
+    const cam = room.camera((a / 24) * 6.283, pitch);
+    const { rgba, mask } = room.render(cam);
+    for (let i = 0; i < mask.length; i++) if (!mask[i]) rgba.set([230, 230, 230, 255], i * 4);
+    map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
+    ceil.update(rgba, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
+  }
+  assert.equal(ceil.measured, false);
+  assert.equal(ceil.height, DEFAULT_CEILING);
+});
+test('A table in the room is not a wall', () => {
+  const map = new GuidePlanner(180);
+  paint(map, -0.6, -2.2, 0.6, -1.6); // mặt bàn dài 0,6 m theo hướng nhìn
+  assert.equal(map.wallAlong(0, 0, 0, -1), null);
+  assert.equal(map.isInside(0, 0, 0, -3.5), true);
+  paint(map, -5, -4.5, 5, -2.5); // tường thật: nhìn từ camera là dải vật cản kéo dài tới hết tầm
+  const d = map.wallAlong(0, 0, 0, -1);
+  assert.ok(d !== null && d < 3.3, String(d));
+  assert.equal(map.isInside(0, 0, 0, -3.8), false);
 });

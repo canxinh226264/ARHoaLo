@@ -20,6 +20,8 @@ const NEAR_FREE = 0.7; // m
 const BODY_RANGE = 1.6; // m
 const OBSERVE_RATE = 0.35;
 const FORGET_AFTER = 10; // giây, vật cản ngoài khung hình mờ dần (người đã đi qua)
+/** Dải vật cản dài từ chừng này (m) trở lên mới được coi là tường. */
+const WALL_RUN = 1.0;
 const BLOCKED_BELOW = -0.25;
 const INFLATE_HARD = 1; // ô, nửa bề ngang người
 const INFLATE_SOFT = 2; // ô, ưu tiên đi cách vật cản
@@ -47,6 +49,8 @@ export class GuidePlanner {
   readonly score = new Float32Array(MAP_SIZE * MAP_SIZE);
   private shiftBuf = new Float32Array(MAP_SIZE * MAP_SIZE);
   private body = new Uint8Array(GRID_W * GRID_H);
+  /** @param forgetAfter số giây bản đồ mờ dần; đo phòng cần nhớ lâu hơn dẫn đường */
+  constructor(private forgetAfter = FORGET_AFTER) {}
   private bodyStack = new Int32Array(GRID_W * GRID_H);
   private cost = new Float32Array(MAP_SIZE * MAP_SIZE);
   private offPath = new Float32Array(MAP_SIZE * MAP_SIZE);
@@ -115,7 +119,7 @@ export class GuidePlanner {
 
   /** Cập nhật bản đồ từ mặt nạ sàn hiện tại. */
   observe(mask: Float32Array, projInv: THREE.Matrix4, q: THREE.Quaternion, cam: THREE.Vector3, dt: number) {
-    const keep = Math.exp(-dt / FORGET_AFTER);
+    const keep = Math.exp(-dt / this.forgetAfter);
     for (let i = 0; i < this.score.length; i++) this.score[i] *= keep;
     this.markBody(mask);
     for (let r = 0; r < GRID_H; r++) {
@@ -194,6 +198,34 @@ export class GuidePlanner {
   }
 
   private fScore = new Float32Array(MAP_SIZE * MAP_SIZE);
+
+  /**
+   * Khoảng cách tới tường theo hướng (dx, dz), null nếu chưa thấy tường hướng đó.
+   * Tường = một dải vật cản dài. Bàn ghế chỉ che một đoạn ngắn rồi lại thấy sàn phía sau nên không tính.
+   */
+  wallAlong(x: number, z: number, dx: number, dz: number, maxDist = MAX_OBSERVE): number | null {
+    const step = CELL * 0.5;
+    let runStart = -1;
+    for (let d = NEAR_FREE; d <= maxDist; d += step) {
+      const i = this.index(x + dx * d, z + dz * d);
+      if (i < 0) break;
+      if (this.score[i] < BLOCKED_BELOW) {
+        if (runStart < 0) runStart = d;
+        if (d - runStart >= WALL_RUN) return runStart;
+      } else {
+        runStart = -1;
+      }
+    }
+    return runStart >= 0 && maxDist - runStart < WALL_RUN + step ? runStart : null;
+  }
+
+  /** Điểm (px, pz) có nằm trong phòng nhìn từ (x, z) không; chưa thấy tường thì coi là có. */
+  isInside(x: number, z: number, px: number, pz: number): boolean {
+    const dist = Math.hypot(px - x, pz - z);
+    if (dist < NEAR_FREE) return true;
+    const wall = this.wallAlong(x, z, (px - x) / dist, (pz - z) / dist);
+    return wall === null || dist < wall;
+  }
 
   /** Chỉ số ô cuối cùng tới được, gần đích nhất nếu không tới được đích. */
   private search(start: number, goal: number) {

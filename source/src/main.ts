@@ -16,12 +16,15 @@ import { QualityManager } from './core/quality-manager';
 import { CorridorLocalizer } from './core/corridor-localizer';
 import { XRAdapter } from './core/xr-adapter';
 import { FloorVision, floorDistances, GRID_W, GRID_H } from './core/floor-vision';
+import { GuidePlanner } from './core/guide-planner';
+import { CeilingVision, DEFAULT_CEILING } from './core/ceiling-vision';
 import { HandTracker, HandOccluder } from './tracking/hand-tracker';
 import { ManualMarkerTracker } from './tracking/marker-tracker';
 import { IndoorScene } from './scenes/indoor-scene';
 import { OutdoorScene } from './scenes/outdoor-scene';
 import { GuideScene, DESTINATION } from './scenes/guide-scene';
-import { GeoTracker } from './core/geo-tracker';
+import { GeoTracker, type GeoFix } from './core/geo-tracker';
+import type { LatLng } from './ui/minimap';
 import { fromEnu } from './core/geo';
 import { fetchRoute, routingKey } from './core/route-service';
 import { AskPanel } from './ui/ask-panel';
@@ -53,7 +56,20 @@ const indoor = new IndoorScene(world);
 const outdoor = new OutdoorScene(R.scene, R.camera);
 const guide = new GuideScene(R.scene);
 const geo = new GeoTracker(DESTINATION.lat, DESTINATION.lng);
-geo.onFix = (f) => guide.gpsFix(f);
+let lastFix: GeoFix | null = null;
+let outdoorRoute: LatLng[] | null = null;
+let outdoorRouteAsked = false;
+geo.onFix = (f) => {
+  guide.gpsFix(f);
+  lastFix = f;
+  // đợi GPS đủ chính xác rồi mới xin tuyến, tránh tính đường từ vị trí sai
+  if (settings.mode === 'outdoor' && !outdoorRouteAsked && f.accuracy < 100) {
+    outdoorRouteAsked = true;
+    fetchRoute(fromEnu(f.e, f.n, DESTINATION.lat, DESTINATION.lng), DESTINATION).then((r) => {
+      outdoorRoute = r ? r.points.map((p) => fromEnu(p.e, p.n, DESTINATION.lat, DESTINATION.lng)) : null;
+    });
+  }
+};
 // tuyến đi bộ theo phố; lỗi thì dải sáng tạm theo hướng chim bay
 guide.onNeedRoute = (e, n) => {
   const from = fromEnu(e, n, DESTINATION.lat, DESTINATION.lng);
@@ -65,7 +81,7 @@ guide.onNeedRoute = (e, n) => {
   });
 };
 geo.onError = (e) => {
-  if (settings.mode === 'guide') toast(ui, e === 'denied' ? t('guideGpsDenied') : e === 'insecure' ? t('errInsecure') : t('guideGpsNone'), 7000, true);
+  if (settings.mode !== 'indoor') toast(ui, e === 'denied' ? t('guideGpsDenied') : e === 'insecure' ? t('errInsecure') : t('guideGpsNone'), 7000, true);
 };
 const hand = new HandTracker();
 const occluder = new HandOccluder(world);
@@ -75,6 +91,18 @@ const xr = new XRAdapter(R.gl, world, R.scene);
 const markers = new ManualMarkerTracker();
 const floorVision = new FloorVision();
 const floorDist = new Float32Array(GRID_W * GRID_H);
+// đo phòng từ camera: bản đồ sàn/tường và chiều cao trần, thay cho kích thước cố định trong room.json
+const roomMap = new GuidePlanner(180);
+const ceiling = new CeilingVision();
+const roomCam = new THREE.Vector3();
+indoor.petals.room = {
+  ceilingY: DEFAULT_CEILING,
+  isInside: (x, z) => roomMap.isInside(roomCam.x, roomCam.z, x, z),
+};
+function resetRoom() {
+  roomMap.reset();
+  ceiling.reset();
+}
 indoor.petals.sources.push(hand);
 
 // ---------------------------------------------------------------- hiện vật 3D trên ảnh in
@@ -284,10 +312,16 @@ function setMode(m: 'indoor' | 'outdoor' | 'guide', animate = true) {
     indoor.setVisible(m === 'indoor');
     outdoor.setVisible(m === 'outdoor');
     guide.setVisible(m === 'guide');
-    if (m !== 'guide') {
-      guide.stop();
+    if (m !== 'guide') guide.stop();
+    if (m === 'indoor') {
       geo.stop();
       minimap.setVisible(false);
+      resetRoom();
+    } else if (m === 'outdoor') {
+      outdoorRouteAsked = false;
+      outdoorRoute = null;
+      lastFix = null;
+      geo.start();
     }
     occluder.mesh.visible = false;
     if (m === 'indoor') {
@@ -350,6 +384,7 @@ const handlers = {
     if (readingChanged) toast(ui, settings.reading ? t('readingOn') : t('readingOff'), 2400);
   },
   recenter() {
+    resetRoom();
     // đổi hướng giữa chừng sẽ làm lệch điểm đến đã đặt, nên đặt lại luôn
     if (settings.mode === 'guide') {
       guideOpen();
@@ -378,6 +413,7 @@ const handlers = {
     xr.end();
   },
   replaceFloor() {
+    resetRoom();
     indoor.petals.clear();
     floorVision.reset();
     if (xr.session) xr.replace();
@@ -574,6 +610,7 @@ const roomToClip = new THREE.Matrix4();
 const invWorldQ = new THREE.Quaternion();
 const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
 const VISION_MS = 100;
+let layoutAt = 0;
 let visionAt = 0;
 const visionQ = new THREE.Quaternion();
 // ?debug: ô nhỏ góc trên trái cho thấy app đang coi đâu là sàn (xanh)
@@ -645,8 +682,15 @@ function tick(now: number, frame?: XRFrame) {
   if (canScan && (now - visionAt >= VISION_MS || visionQ.angleTo(R.camera.quaternion) > 0.08)) {
     const grid = feed.sampleGrid(GRID_W, GRID_H);
     if (grid) {
+      const sec = Math.min(0.5, (now - visionAt) / 1000);
       floorDistances(floorDist, R.camera.projectionMatrixInverse, R.camera.quaternion, R.camera.position.y);
-      floorVision.update(grid, floorDist, Math.min(0.5, (now - visionAt) / 1000));
+      floorVision.update(grid, floorDist, sec);
+      if (settings.mode === 'indoor') {
+        const p = R.camera.position;
+        roomMap.recenter(p.x, p.z);
+        if (floorVision.ready) roomMap.observe(floorVision.mask, R.camera.projectionMatrixInverse, R.camera.quaternion, p, sec);
+        ceiling.update(grid, R.camera.projectionMatrixInverse, R.camera.quaternion, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
+      }
       visionAt = now;
       visionQ.copy(R.camera.quaternion);
       if (dbgMask) drawFloorMask(dbgMask);
@@ -658,6 +702,14 @@ function tick(now: number, frame?: XRFrame) {
     const down = THREE.MathUtils.smoothstep(-pitch, 25, 50);
     // tán cây hiện cả khi nhìn thẳng (ở mép trên khung hình), chỉ tắt khi cúi hẳn xuống
     const canopy = THREE.MathUtils.smoothstep(pitch, -42, -12) * (settings.reading ? 0.55 : 1);
+    // độ cao trần: AR nâng cao lấy từ mặt phẳng thật nếu có, camera thường lấy từ hình ảnh
+    const ceilingY = inXR ? xr.ceilingHeight ?? DEFAULT_CEILING : ceiling.height;
+    roomCam.copy(camPosRoom);
+    indoor.petals.room!.ceilingY = ceilingY;
+    if (now - layoutAt > 250) {
+      layoutAt = now;
+      indoor.branches.layout(camPosRoom.x, camPosRoom.z, ceilingY, indoor.petals.room!.isInside);
+    }
     indoor.branches.update(dt, canopy, up, light, settings.reduceMotion);
     indoor.petals.lookUp = up;
     indoor.petals.lookDown = down;
@@ -694,10 +746,20 @@ function tick(now: number, frame?: XRFrame) {
     }
     hud?.setGuide({ phase: guide.phase, blocked: guide.blocked, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
   } else {
-    minimap.setVisible(false);
     outdoor.update(dt, sensors.angularVel, settings.reduceMotion, R.gl.getPixelRatio());
     hud?.setRemaining(outdoor.remaining);
     hud?.setTurn(outdoor.turnHint(camPosRoom, fwdRoom));
+    minimap.setVisible(!!lastFix);
+    if (lastFix && now - minimapAt > 100) {
+      minimapAt = now;
+      minimap.update({
+        me: fromEnu(lastFix.e, lastFix.n, DESTINATION.lat, DESTINATION.lng),
+        heading: geo.compass ?? 0,
+        route: outdoorRoute,
+        dest: DESTINATION,
+        accuracy: lastFix.accuracy,
+      });
+    }
   }
 
   quality.tick(dt);
@@ -709,6 +771,7 @@ function tick(now: number, frame?: XRFrame) {
       `fps ${quality.fps.toFixed(0)} · ${quality.batterySaver ? 'low*' : quality.level}\n` +
       `rơi ${st.falling} · đọng ${st.resting} · giữ ${st.held}\n` +
       `x ${localizer.position.x.toFixed(2)} z ${localizer.position.z.toFixed(2)} · pitch ${pitch.toFixed(0)}°\n` +
+      `trần ${ceiling.height.toFixed(2)} m${ceiling.measured ? '' : ' (mặc định)'}\n` +
       `tay ${hand.status}${hand.active ? ` · ${hand.depth.toFixed(2)} m${hand.grabbing ? ' · nắm' : ''}` : ''}`;
   }
 }
@@ -730,4 +793,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap, roomMap, ceiling };
