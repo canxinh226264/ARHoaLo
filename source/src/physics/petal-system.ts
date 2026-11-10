@@ -3,6 +3,7 @@ import { getPetalAtlas, CELL } from '../scenes/petal-textures';
 import { BRAND_PETAL_RATIO } from '../config/theme';
 import { HALF_W, LEN } from '../config/room';
 import { Wind } from './wind';
+import { CEILING_GLSL, ceilingUniforms } from '../scenes/ceiling-clip';
 import {
   distanceTo,
   pushOutOfTable,
@@ -12,16 +13,25 @@ import {
   type ColliderSource,
 } from './colliders';
 
-/** Shader cánh hoa: atlas + uốn cong nhẹ + giả trong mờ khi nhìn xiên. */
-export function createPetalMaterial(texture: THREE.Texture) {
+/**
+ * Shader cánh hoa: atlas + uốn cong nhẹ + giả trong mờ khi nhìn xiên.
+ * @param ceilingOnly chỉ hiện ở hướng là trần thật (hoa trên cành)
+ */
+export function createPetalMaterial(texture: THREE.Texture, ceilingOnly = false) {
   return new THREE.ShaderMaterial({
+    defines: ceilingOnly ? { CEILING_ONLY: '' } : {},
     uniforms: {
       map: { value: texture },
       uLight: { value: new THREE.Color(1, 1, 1) },
       uOpacity: { value: 1 },
       uCurl: { value: 0.18 },
+      uSurface: ceilingUniforms.uSurface,
+      uClip: ceilingUniforms.uClip,
     },
     vertexShader: /* glsl */ `
+      #ifdef CEILING_ONLY
+      ${CEILING_GLSL}
+      #endif
       attribute float aCell;
       attribute vec4 aTint;
       uniform float uCurl;
@@ -37,6 +47,9 @@ export function createPetalMaterial(texture: THREE.Texture) {
         vec3 n = normalize(normalMatrix * mat3(instanceMatrix) * vec3(0.0, 0.0, 1.0));
         vFacing = abs(dot(n, normalize(-mv.xyz)));
         vTint = aTint;
+        #ifdef CEILING_ONLY
+        vTint.a *= ceilingMask((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);
+        #endif
         gl_Position = projectionMatrix * mv;
       }
     `,
@@ -114,8 +127,8 @@ export class PetalSystem {
   room: { ceilingY: number; isInside(x: number, z: number): boolean } | null = null;
   sources: ColliderSource[] = [];
   emitters: Emitter[] = [];
-  /** Vùng sàn nhìn thấy trên màn hình (chế độ camera); null = tin mặt sàn y = 0. */
-  floorMask: { sample(ndcX: number, ndcY: number): number } | null = null;
+  /** Vùng sàn nhìn thấy (chế độ camera), tra theo điểm màn hình hoặc hướng từ camera; null = tin mặt sàn y = 0. */
+  floorMask: { sample(ndcX: number, ndcY: number, dx: number, dy: number, dz: number): number } | null = null;
   heldCount = 0;
   onGrab?: (n: number) => void;
 
@@ -579,7 +592,7 @@ export class PetalSystem {
       let onFloor = 1;
       if (this.floorMask && p.y < GROUND_BAND && this.state[i] !== S.Held && (!this.bounded || restSurfaceAt(p.x, p.z) === 0)) {
         _ndc.copy(p).applyMatrix4(roomToClip);
-        onFloor = THREE.MathUtils.lerp(this.floorMask.sample(_ndc.x, _ndc.y), 1, THREE.MathUtils.smoothstep(p.y, 0.05, GROUND_BAND));
+        onFloor = THREE.MathUtils.lerp(this.floorMask.sample(_ndc.x, _ndc.y, p.x - camPos.x, p.y - camPos.y, p.z - camPos.z), 1, THREE.MathUtils.smoothstep(p.y, 0.05, GROUND_BAND));
         vis *= onFloor;
       }
       if (this.readingMode && this.state[i] !== S.Held) {

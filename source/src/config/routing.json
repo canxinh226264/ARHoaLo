@@ -1,9 +1,10 @@
 {
- "_doc": "Tuyến đường đi bộ theo phố cho dải sáng dẫn đường, lấy từ OpenRouteService (dữ liệu OpenStreetMap). Key miễn phí tạo tại https://account.heigit.org; đặt key vào source/.env.local dạng VITE_ORS_KEY=... rồi chạy npm run build:site. Thử lần lượt các profile: đi bộ trước, xe đạp làm dự phòng (diễn đàn ORS có báo lỗi treo với foot-walking từ 10/2026). Không lấy được tuyến thì dải sáng quay về hướng chim bay.",
+ "_doc": "Tuyến đường đi bộ theo phố cho dải sáng dẫn đường, lấy từ OpenRouteService (dữ liệu OpenStreetMap). Key miễn phí tạo tại https://account.heigit.org; đặt key vào source/.env.local dạng VITE_ORS_KEY=... rồi chạy npm run build:site. Thử lần lượt các profile: đi bộ trước, xe đạp làm dự phòng (diễn đàn ORS có báo lỗi treo với foot-walking từ 10/2026). Không lấy được tuyến thì dải sáng tạm theo hướng chim bay và tự thử lại. preference: shortest lấy tuyến ngắn nhất.",
  "url": "https://api.heigit.org/openrouteservice/v2/directions",
  "profiles": ["foot-walking", "cycling-regular"],
+ "preference": "shortest",
  "timeoutMs": 12000,
- "offRouteMeters": 25,
- "rerouteAfterSeconds": 5,
- "minSecondsBetweenRequests": 20
+ "offRouteMeters": 15,
+ "rerouteAfterSeconds": 3,
+ "minSecondsBetweenRequests": 10
 }

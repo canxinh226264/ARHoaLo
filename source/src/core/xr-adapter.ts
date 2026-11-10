@@ -15,10 +15,12 @@ import { FLOOR, FloorDetector } from './floor-detector';
 export type XRStatus = 'scanning' | 'notFloor' | 'ready' | 'placed';
 
 /** Tia hit-test trong hệ camera (x, y, z = −1). Tia đầu là tia ngắm giữa màn hình. */
-const RAYS: [number, number][] = [[0, 0], [0, -0.35], [-0.35, -0.2], [0.35, -0.2], [0, -0.75]];
+const RAYS: [number, number][] = [[0, 0], [-0.35, -0.2], [0.35, -0.2]];
 const MAX_HIT_RANGE = 8; // m, điểm chạm xa hơn thì độ cao kém tin cậy
 const STATUS_HOLD = 0.35; // giây, tránh thông báo nhảy liên tục
 const CORRECT_COOLDOWN = 2; // giây
+/** Độ phân giải lớp vẽ AR so với màn hình: điện thoại không đủ sức vẽ hoa ở độ phân giải đầy đủ. */
+const FRAMEBUFFER_SCALE = 0.6;
 
 const COLOR_OK = 0xfcfaf0;
 const COLOR_REJECT = 0xe2553f;
@@ -76,13 +78,12 @@ export class XRAdapter {
     if (!navigator.xr) return false;
     const session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test'],
-      optionalFeatures: ['dom-overlay', 'anchors', 'local-floor', 'depth-sensing'],
+      optionalFeatures: ['dom-overlay', 'anchors'],
       domOverlay: { root: overlay },
-      // depth-sensing cần khai báo cấu hình; nếu không hỗ trợ thì bỏ qua
-      depthSensing: { usagePreference: ['cpu-optimized'], dataFormatPreference: ['luminance-alpha'] },
     } as XRSessionInit);
     this.session = session;
     this.renderer.xr.enabled = true;
+    this.renderer.xr.setFramebufferScaleFactor(FRAMEBUFFER_SCALE);
     this.renderer.xr.setReferenceSpaceType('local');
     await this.renderer.xr.setSession(session);
     this.refSpace = this.renderer.xr.getReferenceSpace();

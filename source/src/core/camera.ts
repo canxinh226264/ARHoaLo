@@ -1,5 +1,5 @@
 /**
- * Camera feed qua getUserMedia (facingMode: environment).
+ * Camera feed qua getUserMedia: camera sau (environment), hoặc camera trước (user) để chụp selfie.
  * Video hiển thị dạng object-fit: cover; module này giữ phép ánh xạ
  * toạ độ video ↔ màn hình để đặt landmark bàn tay và tính FOV hiển thị.
  */
@@ -18,7 +18,14 @@ export type CameraError = 'denied' | 'notfound' | 'insecure' | 'unsupported' | '
 export class CameraFeed {
   readonly video: HTMLVideoElement;
   stream: MediaStream | null = null;
+  /** Video hiển thị lật gương còn lớp 3D thì không (webcam laptop). */
   mirrored = false;
+  /**
+   * Đang dùng camera trước của điện thoại. Khi đó trang lật cả video lẫn lớp 3D bằng CSS (body.selfie),
+   * còn mọi phép tính (tay, nhận diện, chụp ảnh) vẫn dùng ảnh gốc chưa lật.
+   */
+  selfie = false;
+  facing: 'environment' | 'user' = 'environment';
   ready = false;
 
   constructor(video: HTMLVideoElement) {
@@ -28,14 +35,36 @@ export class CameraFeed {
     video.autoplay = true;
   }
 
-  async start(): Promise<void> {
+  /** Số camera của máy (0 nếu trình duyệt không cho biết). */
+  async countCameras(): Promise<number> {
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      return list.filter((d) => d.kind === 'videoinput').length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Đổi camera trước ↔ sau. Không mở được camera mới thì mở lại camera cũ rồi báo lỗi. */
+  async flip(): Promise<void> {
+    const prev = this.facing;
+    this.stop();
+    try {
+      await this.start(prev === 'user' ? 'environment' : 'user');
+    } catch (e) {
+      await this.start(prev).catch(() => undefined);
+      throw e;
+    }
+  }
+
+  async start(facing = this.facing): Promise<void> {
     if (!window.isSecureContext) throw 'insecure' as CameraError;
     if (!navigator.mediaDevices?.getUserMedia) throw 'unsupported' as CameraError;
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: 'environment' },
+          facingMode: { ideal: facing },
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: 30, max: 30 },
@@ -54,10 +83,13 @@ export class CameraFeed {
       this.video.addEventListener('loadedmetadata', () => res(), { once: true });
     });
     const track = this.stream.getVideoTracks()[0];
-    const facing = track.getSettings().facingMode;
-    // Webcam laptop (không có facingMode) và camera trước: lật gương cho tự nhiên.
+    const actual = track.getSettings().facingMode;
     const isTouch = matchMedia('(pointer: coarse)').matches;
-    this.mirrored = facing === 'user' || (!facing && !isTouch);
+    this.facing = facing;
+    // điện thoại không báo hướng camera thì tin vào hướng đã xin
+    this.selfie = isTouch && (actual === 'user' || (!actual && facing === 'user'));
+    // webcam laptop: chỉ lật video cho tự nhiên như trước
+    this.mirrored = !isTouch && (actual === 'user' || !actual);
     this.video.classList.toggle('mirrored', this.mirrored);
     this.ready = true;
   }
@@ -105,15 +137,17 @@ export class CameraFeed {
   }
 
   /** Ảnh thu nhỏ w × h của đúng phần video đang hiển thị, ô (0,0) ở góc trên trái màn hình. */
-  private grid?: HTMLCanvasElement;
+  private grids = new Map<number, HTMLCanvasElement>();
   sampleGrid(w: number, h: number): Uint8ClampedArray | null {
     if (!this.ready) return null;
-    if (!this.grid) {
-      this.grid = document.createElement('canvas');
-      this.grid.width = w;
-      this.grid.height = h;
+    let grid = this.grids.get(w * 65536 + h);
+    if (!grid) {
+      grid = document.createElement('canvas');
+      grid.width = w;
+      grid.height = h;
+      this.grids.set(w * 65536 + h, grid);
     }
-    const ctx = this.grid.getContext('2d', { willReadFrequently: true });
+    const ctx = grid.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     const L = this.layout();
     ctx.imageSmoothingQuality = 'high';

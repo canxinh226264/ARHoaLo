@@ -10,6 +10,10 @@ import { GRID_H, GRID_W } from './floor-vision';
  *  - Bản đồ sàn cho biết tường cách bao xa (d) theo cùng hướng.
  *  - Chiều cao trần = mắt + d × tan(e). Lấy trung vị của nhiều lần đo.
  *
+ * Có mô hình phân vùng (updateMask) thì vùng trần lấy từ mô hình; ước lượng theo màu chỉ dùng
+ * khi mô hình chưa tải xong hoặc lỗi. Đồ đạc che chân tường làm khoảng cách đo được ngắn đi, nên
+ * kết quả lấy phần trên của các hướng thay vì trung vị.
+ *
  * Giới hạn: tỉ lệ dựa trên chiều cao mắt giả định; tường và trần cùng màu thì không tìm được
  * mép trần, khi đó giữ giá trị mặc định.
  */
@@ -30,6 +34,8 @@ const MIN_SAMPLES = 20;
 const MIN_BINS = 2; // số hướng khác nhau đã đo
 const BIN = 15 * D2R;
 const SMOOTH = 0.2;
+/** Phân vị lấy trên các hướng đã đo. */
+const HEIGHT_PERCENTILE = 0.7;
 
 const _dir = new THREE.Vector3();
 const N = GRID_W * GRID_H;
@@ -60,23 +66,15 @@ export class CeilingVision {
    * @param wallDistance khoảng cách tới tường theo hướng ngang (dx, dz), null nếu chưa biết
    */
   update(rgba: Uint8ClampedArray, projInv: THREE.Matrix4, q: THREE.Quaternion, eye: number, wallDistance: (dx: number, dz: number) => number | null) {
-    const { Y, Cb, Cr, elev, hx, hz, region, stack } = this;
+    const { Y, Cb, Cr, elev, region, stack } = this;
+    this.computeRays(projInv, q);
     const seeds: number[] = [];
-    for (let r = 0; r < GRID_H; r++) {
-      const ny = 1 - ((r + 0.5) / GRID_H) * 2;
-      for (let c = 0; c < GRID_W; c++) {
-        const i = r * GRID_W + c;
-        _dir.set(((c + 0.5) / GRID_W) * 2 - 1, ny, 0.5).applyMatrix4(projInv).applyQuaternion(q).normalize();
-        elev[i] = Math.asin(THREE.MathUtils.clamp(_dir.y, -1, 1));
-        const len = Math.hypot(_dir.x, _dir.z) || 1;
-        hx[i] = _dir.x / len;
-        hz[i] = _dir.z / len;
-        const p = i * 4, R = rgba[p], G = rgba[p + 1], B = rgba[p + 2];
-        Y[i] = 0.299 * R + 0.587 * G + 0.114 * B;
-        Cb[i] = -0.169 * R - 0.331 * G + 0.5 * B;
-        Cr[i] = 0.5 * R - 0.419 * G - 0.081 * B;
-        if (elev[i] >= SEED_ELEVATION) seeds.push(i);
-      }
+    for (let i = 0; i < N; i++) {
+      const p = i * 4, R = rgba[p], G = rgba[p + 1], B = rgba[p + 2];
+      Y[i] = 0.299 * R + 0.587 * G + 0.114 * B;
+      Cb[i] = -0.169 * R - 0.331 * G + 0.5 * B;
+      Cr[i] = 0.5 * R - 0.419 * G - 0.081 * B;
+      if (elev[i] >= SEED_ELEVATION) seeds.push(i);
     }
     if (seeds.length < MIN_SEEDS) return;
 
@@ -116,8 +114,33 @@ export class CeilingVision {
       if (i >= GRID_W) visit(i - GRID_W);
       if (i < GRID_W * (GRID_H - 1)) visit(i + GRID_W);
     }
+    this.measure(eye, wallDistance);
+  }
 
-    // mép trần theo từng cột: ô thuộc trần ngay trên một ô không phải trần
+  /** Như update, nhưng vùng trần lấy từ mặt nạ của mô hình phân vùng (GRID_W × GRID_H). */
+  updateMask(mask: Float32Array, projInv: THREE.Matrix4, q: THREE.Quaternion, eye: number, wallDistance: (dx: number, dz: number) => number | null) {
+    this.computeRays(projInv, q);
+    for (let i = 0; i < N; i++) this.region[i] = mask[i] > 0.5 && this.elev[i] >= MIN_REGION_ELEVATION ? 1 : 0;
+    this.measure(eye, wallDistance);
+  }
+
+  private computeRays(projInv: THREE.Matrix4, q: THREE.Quaternion) {
+    for (let r = 0; r < GRID_H; r++) {
+      const ny = 1 - ((r + 0.5) / GRID_H) * 2;
+      for (let c = 0; c < GRID_W; c++) {
+        const i = r * GRID_W + c;
+        _dir.set(((c + 0.5) / GRID_W) * 2 - 1, ny, 0.5).applyMatrix4(projInv).applyQuaternion(q).normalize();
+        this.elev[i] = Math.asin(THREE.MathUtils.clamp(_dir.y, -1, 1));
+        const len = Math.hypot(_dir.x, _dir.z) || 1;
+        this.hx[i] = _dir.x / len;
+        this.hz[i] = _dir.z / len;
+      }
+    }
+  }
+
+  /** Mép trần theo từng cột: ô thuộc trần ngay trên một ô không phải trần. */
+  private measure(eye: number, wallDistance: (dx: number, dz: number) => number | null) {
+    const { elev, hx, hz, region } = this;
     for (let c = 0; c < GRID_W; c++) {
       for (let r = 1; r < GRID_H; r++) {
         const above = (r - 1) * GRID_W + c, here = r * GRID_W + c;
@@ -141,10 +164,17 @@ export class CeilingVision {
   }
 
   private estimate() {
-    if (this.samples.length < MIN_SAMPLES || new Set(this.samples.map((s) => s.bin)).size < MIN_BINS) return;
-    const sorted = this.samples.map((s) => s.h).sort((a, b) => a - b);
-    const median = sorted[sorted.length >> 1];
-    this.height = this.measured ? this.height + (median - this.height) * SMOOTH : median;
+    if (this.samples.length < MIN_SAMPLES) return;
+    const bins = new Map<number, number[]>();
+    for (const s of this.samples) {
+      const list = bins.get(s.bin);
+      if (list) list.push(s.h);
+      else bins.set(s.bin, [s.h]);
+    }
+    if (bins.size < MIN_BINS) return;
+    const perBin = [...bins.values()].map((list) => list.sort((a, b) => a - b)[list.length >> 1]).sort((a, b) => a - b);
+    const value = perBin[Math.floor((perBin.length - 1) * HEIGHT_PERCENTILE)];
+    this.height = this.measured ? this.height + (value - this.height) * SMOOTH : value;
     this.measured = true;
   }
 }
