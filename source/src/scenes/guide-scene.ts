@@ -265,9 +265,9 @@ export class GuideScene {
     return this.route ? this.route.map((p) => ({ e: p.x, n: p.y })) : null;
   }
 
-  /** Hướng camera theo la bàn (radian, chiều kim đồng hồ từ Bắc). */
-  heading(cam: THREE.Camera) {
-    return wrapAngle(viewAngle(cam.quaternion) - this.north.angle);
+  /** Hướng nhìn theo la bàn (radian, chiều kim đồng hồ từ Bắc) của quaternion camera `q`. */
+  heading(q: THREE.Quaternion) {
+    return wrapAngle(viewAngle(q) - this.north.angle);
   }
 
   /** Kết quả xin tuyến (null = không lấy được, đi theo hướng chim bay). */

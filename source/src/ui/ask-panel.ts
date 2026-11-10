@@ -1,5 +1,6 @@
 import { t, getLang } from './i18n';
 import { el } from './screens';
+import { speak, stopSpeaking, tts } from './speech';
 import { askGuide, buildContext, type AskItem, type AskTurn, type AskError } from '../core/ask-service';
 
 /**
@@ -27,16 +28,6 @@ type Recognition = {
   start(): void;
   stop(): void;
 };
-
-/**
- * Bộ đọc to của trình duyệt, null nếu không có. Trình duyệt trong app (Zalo, Facebook, Messenger…)
- * trên Android không có speechSynthesis: gọi thẳng tên này sẽ lỗi ReferenceError và chặn mở khung chat.
- */
-function tts(): SpeechSynthesis | null {
-  return typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined'
-    ? window.speechSynthesis
-    : null;
-}
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -72,9 +63,9 @@ export class AskPanel {
 
   close() {
     this.rec?.stop();
+    if (this.back) stopSpeaking();
     this.back?.remove();
     this.back = null;
-    tts()?.cancel();
   }
 
   private suggestions(): string[] {
@@ -160,14 +151,7 @@ export class AskPanel {
   }
 
   private say(text: string) {
-    const synth = tts();
-    if (!synth) return;
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = getLang() === 'vi' ? 'vi-VN' : 'en-US';
-    const v = synth.getVoices().find((x) => x.lang?.toLowerCase().startsWith(u.lang.slice(0, 2)));
-    if (v) u.voice = v;
-    synth.speak(u);
+    speak(text, getLang());
   }
 
   private listen() {

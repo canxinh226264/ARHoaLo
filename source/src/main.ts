@@ -38,7 +38,8 @@ import { ArtifactTracker } from './tracking/artifact-tracker';
 import { ArtifactViewer, type ArtifactItem } from './scenes/artifact-viewer';
 import { showGate, showPermissionSheet, showOnboarding, hasOnboarded, toast } from './ui/screens';
 import { Hud, type Settings } from './ui/hud';
-import { t, getLang } from './ui/i18n';
+import { t, getLang, onLang } from './ui/i18n';
+import { cardSpeech, speak, stopSpeaking } from './ui/speech';
 import { petalSwirl, chime } from './ui/transition';
 import type { ColliderSource, DynamicCollider } from './physics/colliders';
 
@@ -131,11 +132,47 @@ let readingFromCard = false;
 function hideInfoCard() {
   infoItem = null;
   hud?.setArtifact(null, 'hidden');
+  stopSpeaking();
   if (readingFromCard) {
     readingFromCard = false;
     handlers.change({ reading: false });
   }
 }
+/** Đang đọc to nội dung thẻ panel. */
+let readingAloud = false;
+/** Gọi đúng một lần khi đọc xong, bị dừng hoặc bị nội dung khác chen ngang. */
+function endReadAloud() {
+  readingAloud = false;
+  hud?.setSpeaking(false);
+  if (readingFromCard) {
+    readingFromCard = false;
+    settings.reading = false;
+    applySettings();
+  }
+}
+/** Đọc to thẻ đang hiện bằng ngôn ngữ đang chọn; trong lúc đọc thì thưa hoa để dễ nhìn thẻ. */
+function readCardAloud() {
+  const item = currentItem();
+  if (!item) return;
+  const lang = getLang();
+  const r = speak(cardSpeech(item, lang), lang, endReadAloud);
+  if (r === 'unsupported') {
+    toast(ui, t('readNoTts'), 5000, true);
+    return;
+  }
+  if (r === 'no-voice') toast(ui, t('readNoVoice'), 6000, true);
+  readingAloud = true;
+  hud?.setSpeaking(true);
+  if (!settings.reading) {
+    readingFromCard = true;
+    settings.reading = true;
+    applySettings();
+  }
+}
+// đổi ngôn ngữ khi đang đọc: đọc lại bằng ngôn ngữ mới
+onLang(() => {
+  if (readingAloud) readCardAloud();
+});
 artTracker.onFound = (i) => {
   const item = targetItems.find((x) => x.targetIndex === i);
   if (!item) return;
@@ -221,10 +258,7 @@ async function onStart() {
       const cur = currentItem();
       if (cur) askPanel.open(t('askAbout')(getLang() === 'vi' ? cur.titleVi : cur.titleEn));
     },
-    reading: () => {
-      handlers.change({ reading: !settings.reading });
-      readingFromCard = settings.reading;
-    },
+    speak: () => (readingAloud ? stopSpeaking() : readCardAloud()),
     close: () => {
       if (infoItem) {
         hideInfoCard();
@@ -256,6 +290,7 @@ async function startCameraMode() {
   try {
     await (camPromise ?? feed.start());
     hasCamera = true;
+    feed.countCameras().then((n) => hud?.setCamera(n !== 1, feed.selfie));
   } catch (e) {
     const err = e as CameraError;
     hasCamera = false;
@@ -390,38 +425,22 @@ quality.onChange = applyQuality;
 
 const handlers = {
   capture,
-  setMode: (m: 'indoor' | 'outdoor') => setMode(m, true),
+  setMode: (m: 'indoor' | 'outdoor') => {
+    setMode(m, true);
+    toast(ui, t('modeNow')(m === 'indoor' ? t('modeIndoor') : t('modeOutdoor')), 1800);
+  },
+  flipCamera,
   change(s: Partial<Settings>) {
     const readingChanged = s.reading !== undefined && s.reading !== settings.reading;
     Object.assign(settings, s);
     applySettings();
     if (readingChanged) toast(ui, settings.reading ? t('readingOn') : t('readingOff'), 2400);
   },
-  recenter() {
-    resetRoom();
-    floorVision.reset();
-    indoor.petals.clear();
-    sensors.recenter(0);
-    toast(ui, t('recentered'), 2000);
-  },
-  standAt(id: string) {
-    markers.confirm(id);
-  },
   tutorial() {
     showOnboarding(ui);
   },
   arrived() {
     setMode('indoor', true);
-  },
-  exitXr() {
-    xr.end();
-  },
-  replaceFloor() {
-    resetRoom();
-    indoor.petals.clear();
-    floorVision.reset();
-    if (xr.session) xr.replace();
-    else toast(ui, t('floorScan'), 6000);
   },
   guideOpen,
   guideFloorDone() {
@@ -432,6 +451,21 @@ const handlers = {
   },
   ask: (preset?: string) => askPanel.open(preset),
 };
+
+/** Đổi camera trước ↔ sau để chụp selfie. */
+let flipping = false;
+async function flipCamera() {
+  if (!hasCamera || xr.session || flipping) return;
+  flipping = true;
+  try {
+    await feed.flip();
+  } catch {
+    toast(ui, t('flipFail'), 4000, true);
+  }
+  flipping = false;
+  document.body.classList.toggle('selfie', feed.selfie);
+  hud?.setCamera(true, feed.selfie);
+}
 
 /** Camera thấy ảnh cổng triển lãm: tắt dẫn đường, chuyển sang hoa đào rơi. */
 function enterExhibition() {
@@ -490,7 +524,7 @@ markers.onFix = (fix) => {
 // bước chân → cập nhật vị trí (dead-reckoning)
 const fwd = new THREE.Vector3();
 sensors.onStep = () => {
-  fwd.set(0, 0, -1).applyQuaternion(R.camera.quaternion);
+  fwd.set(0, 0, -1).applyQuaternion(feed.selfie ? sensors.quaternion : R.camera.quaternion);
   if (settings.mode === 'indoor') localizer.onStep(fwd);
   else guide.step(fwd);
 };
@@ -608,6 +642,7 @@ const camPosRoom = new THREE.Vector3();
 const fwdRoom = new THREE.Vector3();
 const roomToClip = new THREE.Matrix4();
 const invWorldQ = new THREE.Quaternion();
+const FLIP_Y = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createElement('div'), { className: 'debug' })) : null;
 const VISION_MS = 100;
 /** Quay nhanh hơn mức này (rad/s) thì ảnh nhoè, chưa đưa vào mô hình. */
@@ -647,6 +682,8 @@ function tick(now: number, frame?: XRFrame) {
     sensors.update(dt);
     localizer.update(dt);
     R.camera.quaternion.copy(sensors.quaternion);
+    // camera trước nhìn ngược với lưng máy: quay 180° quanh trục dọc màn hình
+    if (feed.selfie) R.camera.quaternion.multiply(FLIP_Y);
     if (settings.mode === 'indoor') R.camera.position.copy(localizer.position);
     else R.camera.position.set(guide.position.x, room.user.eyeHeightDefault, guide.position.y);
     if (feed.ready) R.setVFov(feed.displayVFov(room.camera.longEdgeFovDeg));
@@ -681,8 +718,9 @@ function tick(now: number, frame?: XRFrame) {
 
   // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
   const useVision = !inXR && hasCamera && settings.mode === 'indoor';
-  const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored;
-  if (useVision && !canScan) {
+  // selfie: khung hình chủ yếu là người, nên tạm dừng đo nhưng giữ bản đồ sàn/trần đã có
+  const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored && !feed.selfie;
+  if (useVision && !canScan && !feed.selfie) {
     floorVision.reset();
     surfaces.reset();
   }
@@ -741,14 +779,15 @@ function tick(now: number, frame?: XRFrame) {
       }
     }
     if (demoHand) demoHand.update(dt, R.camera);
-    indoor.petals.floorMask = useVision ? (surfaces.ready ? surfaces : floorVision) : null;
+    // mặt nạ màu sàn tính theo khung hình camera sau, không dùng được khi selfie
+    indoor.petals.floorMask = useVision ? (surfaces.ready ? surfaces : feed.selfie ? null : floorVision) : null;
     if (!inXR || xr.placed) {
       roomToClip.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(world.matrixWorld);
       indoor.petals.update(dt, roomToClip, camPosRoom, fwdRoom);
     }
   } else {
     guide.pointScale = R.gl.getPixelRatio() * innerHeight * 0.02;
-    guide.update(dt, R.camera, geo.compass === null ? null : { value: geo.compass, at: geo.compassAt });
+    guide.update(dt, R.camera, geo.compass === null || feed.selfie ? null : { value: geo.compass, at: geo.compassAt });
     if (settings.mode === 'outdoor') outdoor.update(dt, sensors.angularVel, settings.reduceMotion);
     const showMap = guide.hasFix && (guide.phase === 'walk' || guide.phase === 'locating' || guide.phase === 'arrived');
     minimap.setVisible(showMap);
@@ -757,7 +796,7 @@ function tick(now: number, frame?: XRFrame) {
       const toLatLng = (p: { e: number; n: number }) => fromEnu(p.e, p.n, DESTINATION.lat, DESTINATION.lng);
       minimap.update({
         me: toLatLng(guide.userEnu),
-        heading: guide.north.ready ? guide.heading(R.camera) : 0,
+        heading: guide.north.ready ? guide.heading(sensors.quaternion) : 0,
         route: guide.routeEnu?.map(toLatLng) ?? null,
         dest: DESTINATION,
         accuracy: guide.accuracy,

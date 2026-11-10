@@ -1,7 +1,6 @@
 import { t, other, getLang, setLang, onLang } from './i18n';
 import { icons } from './icons';
 import { el, sheet } from './screens';
-import { landmarkPanels } from '../config/room';
 import { DESTINATION, type GuidePhase, type GuideSetup, type RouteState } from '../scenes/guide-scene';
 
 export interface Settings {
@@ -25,41 +24,33 @@ export interface HudHandlers {
   capture(): void;
   setMode(m: 'indoor' | 'outdoor'): void;
   change(s: Partial<Settings>): void;
-  recenter(): void;
-  standAt(panelId: string): void;
   tutorial(): void;
   arrived(): void;
-  exitXr?(): void;
-  replaceFloor?(): void;
+  flipCamera?(): void;
   ask?(preset?: string): void;
   guideOpen?(): void;
   guideFloorDone?(): void;
   guideExit?(): void;
 }
 
-const PANEL_LABEL: Record<string, string> = {
-  F: 'Lời giới thiệu',
-  A1: 'Phần A, đoạn 1',
-  A2: 'Phần A, đoạn 2',
-  A3: 'Phần A, đoạn 3',
-  A4: 'Phần A, đoạn 4',
-  B2: 'Chi bộ Đảng',
-  C4: 'Chợ Tết xưa',
-  C8: 'Chợ Tết nay',
-  D11: 'Bàn quà, cây đào',
-};
-
 type GuideState = { phase: GuidePhase; floorNow: number; floorTo: number; remaining: number; accuracy: number; routeState: RouteState };
 
 export class Hud {
   readonly el: HTMLElement;
   private handChip: HTMLElement;
-  private modeChip: HTMLButtonElement;
+  private modeBtn: HTMLButtonElement;
+  private menuBtn: HTMLButtonElement;
+  private flipBtn: HTMLButtonElement;
   private way: HTMLElement;
   private art: HTMLElement;
   private artState: { item: ArtifactCardItem | null; mode: string } = { item: null, mode: 'hidden' };
-  artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void; reading(): void } | null = null;
+  artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void; speak(): void } | null = null;
   private handState: 'off' | 'seen' | 'hold' | 'loading' = 'off';
+  /** Menu thả xuống đang mở (cùng lớp phủ trong suốt bắt cú chạm ra ngoài), null nếu đóng. */
+  private dropdown: { menu: HTMLElement; scrim: HTMLElement } | null = null;
+  private speaking = false;
+  private canFlip = false;
+  private selfie = false;
   xrActive = false;
 
   constructor(private root: HTMLElement, private s: Settings, private h: HudHandlers) {
@@ -68,7 +59,8 @@ export class Hud {
       <div class="hud__top">
         <div class="chip chip--hand" aria-live="polite">${icons.hand}<span></span></div>
         <div class="hud__right">
-          <button class="chip" type="button" data-mode></button>
+          <button class="round round--top" type="button" data-menu aria-haspopup="menu" aria-expanded="false">${icons.gear}</button>
+          <button class="round round--top" type="button" data-mode></button>
         </div>
       </div>
       <div class="wayfind" hidden></div>
@@ -76,15 +68,18 @@ export class Hud {
       <div class="hud__bottom">
         <button class="round round--left" type="button" data-ask>${icons.chat}</button>
         <button class="shutter" type="button" data-shot></button>
-        <button class="round round--right" type="button" data-menu>${icons.menu}</button>
+        <button class="round round--right" type="button" data-flip hidden>${icons.flip}</button>
       </div>`;
     this.handChip = this.el.querySelector('.chip--hand')!;
-    this.modeChip = this.el.querySelector('[data-mode]')!;
+    this.modeBtn = this.el.querySelector('[data-mode]')!;
+    this.menuBtn = this.el.querySelector('[data-menu]')!;
+    this.flipBtn = this.el.querySelector('[data-flip]')!;
     this.way = this.el.querySelector('.wayfind')!;
     this.art = this.el.querySelector('.artcard')!;
     this.el.querySelector('[data-shot]')!.addEventListener('click', () => h.capture());
-    this.modeChip.addEventListener('click', () => h.setMode(this.s.mode === 'indoor' ? 'outdoor' : 'indoor'));
-    this.el.querySelector('[data-menu]')!.addEventListener('click', () => this.openMenu());
+    this.modeBtn.addEventListener('click', () => h.setMode(this.s.mode === 'indoor' ? 'outdoor' : 'indoor'));
+    this.menuBtn.addEventListener('click', () => (this.dropdown ? this.closeMenu() : this.openMenu()));
+    this.flipBtn.addEventListener('click', () => this.h.flipCamera?.());
     this.el.querySelector('[data-ask]')!.addEventListener('click', () => this.h.ask?.());
     root.appendChild(this.el);
     onLang(() => this.refresh());
@@ -108,6 +103,20 @@ export class Hud {
     this.refreshArt();
   }
 
+  /** Đang đọc to nội dung thẻ: nút loa chuyển thành nút dừng. */
+  setSpeaking(on: boolean) {
+    if (on === this.speaking) return;
+    this.speaking = on;
+    this.refreshArt();
+  }
+
+  /** @param available máy có hơn một camera; @param selfie đang dùng camera trước */
+  setCamera(available: boolean, selfie: boolean) {
+    this.canFlip = available;
+    this.selfie = selfie;
+    this.refresh();
+  }
+
   private refreshArt() {
     const { item, mode } = this.artState;
     const show = !!item && mode !== 'hidden';
@@ -127,7 +136,7 @@ export class Hud {
       ${desc ? `<p>${desc}</p>` : ''}
       ${info ? '' : `<span class="hint">${t('artHint')}</span>`}
       <div class="row">
-        ${info ? `<button class="round round--sm" type="button" data-a="reading" aria-pressed="${this.s.reading}" aria-label="${t('reading')}" title="${t('reading')}">${icons.book}</button>` : ''}
+        ${info ? `<button class="round round--sm" type="button" data-a="speak" aria-pressed="${this.speaking}" aria-label="${this.speaking ? t('readStop') : t('readAloud')}" title="${this.speaking ? t('readStop') : t('readAloud')}">${icons.speaker}</button>` : ''}
         <button class="btn btn--ghost" type="button" data-a="ask">${t('askMore')}</button>
         ${info
           ? `<button class="btn" type="button" data-a="close">${t('artClose')}</button>`
@@ -138,7 +147,7 @@ export class Hud {
       </div>`;
     this.art.querySelectorAll<HTMLButtonElement>('[data-a]').forEach((b) =>
       b.addEventListener('click', () => {
-        const a = b.dataset.a as 'inspect' | 'reset' | 'close' | 'ask' | 'reading';
+        const a = b.dataset.a as 'inspect' | 'reset' | 'close' | 'ask' | 'speak';
         this.artHandlers?.[a]();
       }),
     );
@@ -147,7 +156,8 @@ export class Hud {
   private refreshHand() {
     const span = this.handChip.querySelector('span')!;
     const st = this.handState;
-    this.handChip.classList.toggle('show', st !== 'off');
+    // ngoài cổng góc trên trái là chỗ của bản đồ
+    this.handChip.classList.toggle('show', st !== 'off' && this.s.mode === 'indoor');
     this.handChip.classList.toggle('hold', st === 'hold');
     span.textContent = st === 'hold' ? t('handHolding') : st === 'loading' ? t('handLoading') : st === 'seen' ? t('handSeen') : '';
   }
@@ -244,87 +254,75 @@ export class Hud {
     const ask = this.el.querySelector('[data-ask]') as HTMLElement;
     ask.setAttribute('aria-label', t('askChip'));
     ask.title = t('askChip');
-    this.modeChip.innerHTML = `${indoor ? icons.door : icons.path}<span>${indoor ? t('modeIndoor') : this.s.mode === 'guide' ? t('modeGuide') : t('modeOutdoor')}</span>`;
-    this.modeChip.setAttribute('aria-label', `${t('modeIndoor')} / ${t('modeOutdoor')}`);
+    // nút đổi chế độ chỉ có icon: vẽ biểu tượng của chế độ sẽ chuyển sang
+    const target = indoor ? t('modeOutdoor') : t('modeIndoor');
+    this.modeBtn.innerHTML = indoor ? icons.pin : icons.door;
+    this.modeBtn.setAttribute('aria-label', t('modeSwitchTo')(target));
+    this.modeBtn.title = t('modeSwitchTo')(target);
     (this.el.querySelector('[data-shot]') as HTMLElement).setAttribute('aria-label', t('capture'));
-    (this.el.querySelector('[data-menu]') as HTMLElement).setAttribute('aria-label', t('menu'));
+    this.menuBtn.setAttribute('aria-label', t('menu'));
+    this.menuBtn.title = t('menu');
+    this.flipBtn.hidden = !this.canFlip || this.xrActive;
+    this.flipBtn.setAttribute('aria-label', t('flipCamera'));
+    this.flipBtn.title = t('flipCamera');
+    this.flipBtn.setAttribute('aria-pressed', String(this.selfie));
     this.refreshHand();
     this.refreshWay();
     this.refreshArt();
   }
 
+  /** Menu thả xuống dưới nút cài đặt; chạm ra ngoài (hoặc phím Esc) thì đóng, không cần nút Đóng. */
   openMenu() {
-    const s = this.s;
-    const indoor = s.mode === 'indoor';
-    const sw = (key: keyof Settings, label: string) =>
-      `<label class="opt"><span>${label}</span><span class="switch"><input type="checkbox" data-k="${key}" ${s[key] ? 'checked' : ''}/><i></i></span></label>`;
-    sheet(
-      this.root,
-      `<h2>${t('menu')}</h2><p class="en">${other('menu')}</p>
-       ${sw('reading', t('reading'))}
-       <label class="opt"><span>${t('density')}</span><input type="range" min="0.3" max="1.5" step="0.1" value="${s.density}" data-density aria-label="${t('density')}"/></label>
-       ${sw('sound', t('sound'))}
-       ${sw('battery', t('battery'))}
-       ${sw('reduceMotion', t('reduceMotion'))}
-       ${sw('guide', t('guide'))}
-       ${indoor ? `<button class="opt-btn" type="button" data-stand>${t('standAt')}<small>${other('standAt')}</small></button>
-       <button class="opt-btn" type="button" data-recenter>${t('recenter')}<small>${other('recenter')}</small></button>` : ''}
-       <button class="opt-btn" type="button" data-tut>${t('tutorial')}</button>
-       <button class="opt-btn" type="button" data-help>${t('help')}</button>
-       <button class="opt-btn" type="button" data-lang>${t('language')}</button>
-       ${this.xrActive ? '' : `<button class="opt-btn" type="button" data-guide>${t('guideMenu')}<small>${other('guideMenu')}</small></button>`}
-       ${indoor ? `<button class="opt-btn" type="button" data-refloor>${t('xrReplace')}<small>${other('xrReplace')}</small></button>` : ''}
-       ${this.xrActive ? `<button class="opt-btn" type="button" data-exitxr>${t('exitXr')}</button>` : ''}
-       <p class="fine" style="margin-top:12px">${t('privacy')}</p>
-       <div class="actions"><button class="btn btn--ghost" type="button" data-close>${t('close')}</button></div>`,
-      (sh, close) => {
-        sh.querySelectorAll<HTMLInputElement>('input[data-k]').forEach((i) =>
-          i.addEventListener('change', () => this.h.change({ [i.dataset.k as string]: i.checked } as Partial<Settings>)),
-        );
-        sh.querySelector<HTMLInputElement>('[data-density]')!.addEventListener('input', (e) =>
-          this.h.change({ density: parseFloat((e.target as HTMLInputElement).value) }),
-        );
-        sh.querySelector('[data-close]')!.addEventListener('click', close);
-        sh.querySelector('[data-stand]')?.addEventListener('click', () => { close(); this.openPanelPicker(); });
-        sh.querySelector('[data-recenter]')?.addEventListener('click', () => {
-          close();
-          sheet(this.root, `<h2>${t('recenter')}</h2><p class="en">${other('recenter')}</p><p>${t('recenterHint')}</p>
-            <div class="actions"><button class="btn" type="button" data-ok>${t('recenter')}</button><button class="link" type="button" data-x>${t('close')}</button></div>`,
-            (s2, c2) => {
-              s2.querySelector('[data-ok]')!.addEventListener('click', () => { c2(); this.h.recenter(); });
-              s2.querySelector('[data-x]')!.addEventListener('click', c2);
-            });
-        });
-        sh.querySelector('[data-tut]')!.addEventListener('click', () => { close(); this.h.tutorial(); });
-        sh.querySelector('[data-help]')!.addEventListener('click', () => {
-          close();
-          sheet(this.root, `<h2>${t('help')}</h2><p class="en">${other('help')}</p><p>${t('helpBody')}</p><p class="fine">${t('privacy')}</p>
-            <div class="actions"><button class="btn btn--ghost" type="button" data-x>${t('close')}</button></div>`,
-            (s2, c2) => s2.querySelector('[data-x]')!.addEventListener('click', c2));
-        });
-        sh.querySelector('[data-lang]')!.addEventListener('click', () => { close(); setLang(getLang() === 'vi' ? 'en' : 'vi'); });
-        sh.querySelector('[data-guide]')?.addEventListener('click', () => { close(); this.h.guideOpen?.(); });
-        sh.querySelector('[data-refloor]')?.addEventListener('click', () => { close(); this.h.replaceFloor?.(); });
-        sh.querySelector('[data-exitxr]')?.addEventListener('click', () => { close(); this.h.exitXr?.(); });
-      },
-    );
+    this.closeMenu();
+    const scrim = el('div', 'dropdown-scrim');
+    const menu = el('div', 'dropdown');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', t('menu'));
+    menu.innerHTML = `
+      <button class="dropdown__item" type="button" role="menuitem" data-lang lang="${getLang() === 'vi' ? 'en' : 'vi'}">${icons.globe}<span>${t('language')}</span></button>
+      <button class="dropdown__item" type="button" role="menuitem" data-tut>${icons.play}<span>${t('tutorial')}</span></button>
+      <button class="dropdown__item" type="button" role="menuitem" data-help>${icons.help}<span>${t('help')}</span></button>`;
+    scrim.addEventListener('click', () => this.closeMenu());
+    menu.querySelector('[data-lang]')!.addEventListener('click', () => {
+      this.closeMenu();
+      setLang(getLang() === 'vi' ? 'en' : 'vi');
+    });
+    menu.querySelector('[data-tut]')!.addEventListener('click', () => {
+      this.closeMenu();
+      this.h.tutorial();
+    });
+    menu.querySelector('[data-help]')!.addEventListener('click', () => {
+      this.closeMenu();
+      this.openHelp();
+    });
+    this.root.append(scrim, menu);
+    this.dropdown = { menu, scrim };
+    this.menuBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('keydown', this.onMenuKey);
+    menu.querySelector<HTMLElement>('.dropdown__item')?.focus({ preventScroll: true });
   }
 
-  openPanelPicker() {
-    const btns = landmarkPanels
-      .map((p) => `<button type="button" class="${p.side}" data-p="${p.id}"><b>${p.id}</b><small>${PANEL_LABEL[p.id] ?? ''}</small></button>`)
-      .join('');
+  closeMenu() {
+    if (!this.dropdown) return;
+    this.dropdown.menu.remove();
+    this.dropdown.scrim.remove();
+    this.dropdown = null;
+    this.menuBtn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('keydown', this.onMenuKey);
+  }
+
+  private onMenuKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    this.closeMenu();
+    this.menuBtn.focus();
+  };
+
+  private openHelp() {
     sheet(
       this.root,
-      `<h2>${t('standAt')}</h2><p class="en">${other('standAt')}</p><p>${t('standAtHint')}</p>
-       <div class="panels">${btns}</div>
-       <div class="actions"><button class="link" type="button" data-x>${t('close')}</button></div>`,
-      (sh, close) => {
-        sh.querySelectorAll<HTMLButtonElement>('[data-p]').forEach((b) =>
-          b.addEventListener('click', () => { close(); this.h.standAt(b.dataset.p!); }),
-        );
-        sh.querySelector('[data-x]')!.addEventListener('click', close);
-      },
+      `<h2>${t('help')}</h2><p class="en">${other('help')}</p><p>${t('helpBody')}</p><p class="fine">${t('privacy')}</p>
+       <div class="actions"><button class="btn btn--ghost" type="button" data-x>${t('close')}</button></div>`,
+      (sh, close) => sh.querySelector('[data-x]')!.addEventListener('click', close),
     );
   }
 

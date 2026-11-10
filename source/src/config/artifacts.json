@@ -1,5 +1,5 @@
 {
-  "_doc": "Ảnh mốc nhận diện bằng camera (MindAR). targetIndex = thứ tự ảnh lúc biên dịch markers/artifacts.mind ở thư mục bản chạy (tools/compile-targets.html, chọn ảnh đúng thứ tự trong danh sách này). kind: 'model' = hiện model 3D (cần model), 'info' = hiện thẻ văn bản, 'enter' = ảnh cổng triển lãm: thấy là chuyển sang hoa đào rơi. physicalWidth = bề rộng ảnh in thật (m) [CẦN ĐO]. descVi/descEn: BTC điền; [CẦN BỔ SUNG] nghĩa là chưa có nội dung, trợ lý hỏi đáp sẽ không bịa thêm.",
+  "_doc": "Ảnh mốc nhận diện bằng camera (MindAR). targetIndex = thứ tự ảnh lúc biên dịch markers/artifacts.mind ở thư mục bản chạy (tools/compile-targets.html, chọn ảnh đúng thứ tự trong danh sách này). kind: 'model' = hiện model 3D (cần model), 'info' = hiện thẻ văn bản, 'enter' = ảnh cổng triển lãm: thấy là chuyển sang hoa đào rơi. physicalWidth = bề rộng ảnh in thật (m) [CẦN ĐO]. descVi/descEn: BTC điền; [CẦN BỔ SUNG] nghĩa là chưa có nội dung, trợ lý hỏi đáp sẽ không bịa thêm. Nội dung panel F, B2, D11 chép từ ảnh thiết kế panel (cả tiếng Việt và tiếng Anh in trên panel), BTC cần soát lại theo bản in chính thức. Nút loa trên thẻ đọc descVi hoặc descEn theo ngôn ngữ đang chọn.",
   "targets": "markers/artifacts.mind",
   "items": [
     {
@@ -46,8 +46,8 @@
       "physicalWidth": 2.0,
       "titleVi": "Panel F · Lời giới thiệu",
       "titleEn": "Panel F · Introduction",
-      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
-      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+      "descVi": "Mỗi độ xuân sang, đất trời giao hòa, cây cối đâm chồi nảy lộc, lòng người lại hân hoan đón chờ những khởi đầu mới. Trong không khí ấy, mùa xuân còn gắn liền với những sự kiện lịch sử trọng đại của Đảng, của đất nước.\n\nTrong hành trình đi tìm mùa xuân cho đất nước, nhiều chiến sĩ cách mạng đã từng đón Tết giữa chốn ngục tù tăm tối. Tại Nhà tù Hỏa Lò, các hoạt động mừng xuân do Chi bộ Đảng tổ chức như: chào cờ, sáng tác thơ ca, diễn kịch… đã trở thành điểm tựa tinh thần, giúp người tù vơi đi nỗi nhớ nhà và thêm vững tin vào con đường đã chọn.\n\nTrưng bày chuyên đề “Đón gió xuân” không chỉ tái hiện những cái Tết đặc biệt sau song sắt, mà còn tiếp tục nối dài mạch xuân qua hình ảnh các phiên chợ Tết truyền thống của người Hà Nội.",
+      "descEn": "Each spring, when heaven and earth are in harmony, trees sprout and grow, people eagerly welcome fresh beginnings. In that atmosphere, spring is also closely associated with the significant historical milestones of the Party and the nation.\n\nOn the journey to seek spring for the nation, many revolutionaries once celebrated the Lunar New Year within the darkness of prison walls. At Hoa Lo Prison, spring and New Year celebrations organized by the Party cell such as flag salutes, poetry and song compositions, and theatrical performances became a source of spiritual strength, easing the prisoners’ longing for home and strengthening their faith in the path they had chosen.\n\nThe thematic exhibition “Welcoming the Spring Breeze” not only recreates special Tet holidays behind bars, but also carries forward the festive spirit of spring through the images of Hanoi’s traditional Tet markets."
     },
     {
       "id": "panel-A1",
@@ -101,8 +101,8 @@
       "physicalWidth": 3.0,
       "titleVi": "Panel B2 · Chi bộ Đảng",
       "titleEn": "Panel B2 · The Party cell",
-      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
-      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+      "descVi": "Sau khi Đảng Cộng sản Việt Nam ra đời năm 1930, thực dân Pháp tìm mọi biện pháp để đàn áp phong trào cách mạng. Chúng tăng cường bắt, giam các chiến sĩ cách mạng và quần chúng yêu nước, trong đó có các đồng chí là cán bộ lãnh đạo của Đảng. Khi vào tù, các đồng chí đã nghĩ ngay đến việc thành lập Chi bộ Đảng. Năm 1931 – 1932, Chi bộ Đảng Nhà tù Hỏa Lò được thành lập do đồng chí Hạ Bá Cang (Hoàng Quốc Việt) làm Bí thư.",
+      "descEn": "After the Communist Party of Vietnam was founded in 1930, the French colonialist authorities sought every way to suppress the revolutionary movement. They intensified the arrest and imprisonment of revolutionary soldiers and patriots, including Party leaders. Once in prison, the comrades immediately thought of forming a Party cell. During 1931–1932, the Hoa Lo Prison Party Cell was established, with comrade Ha Ba Cang (Hoang Quoc Viet) serving as Secretary."
     },
     {
       "id": "panel-C4",
@@ -134,8 +134,8 @@
       "physicalWidth": 5.0,
       "titleVi": "Panel D11 · Bàn quà, cây đào – bảng Tết Nguyên Đán 1953",
       "titleEn": "Panel D11 · Gift table and peach tree – the 1953 Lunar New Year board",
-      "descVi": "[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.",
-      "descEn": "[CẦN BỔ SUNG] Panel text to be provided by the organisers."
+      "descVi": "Bữa tiệc tàu bay\n\nGiám ngục Hỏa Lò hạn chế các gia đình tiếp tế thức ăn, thuốc chữa bệnh, thuốc lá… cho người thân trong tù. Do vậy, một số gia đình đã ném quà qua tường cao vào nhà tù, ném đúng vào giờ ra sân chơi và nhắm trúng đích là gốc cây bàng. Những quà nhận được kiểu này, người tù gọi là hàng “tàu bay”.\n\nCó lần, người bên ngoài ném vào thư chúc Tết, bánh kẹo, thuốc lá… cho anh em bên trong liên hoan mừng xuân, chỉ một số ít người biết được và kín đáo gọi đây là “Bữa tiệc tàu bay”.",
+      "descEn": "Flying feast\n\nThe Hoa Lo Prison administration restricted families from supplying food, medicine, cigarettes, and other necessities to their imprisoned relatives. As a result, some families threw packages over the high walls into the prison yard, timing them to coincide with recreation hours and aiming for the base of the almond tree. Prisoners called these received items “flying goods.”\n\nAt times, people outside would toss in New Year’s greeting letters, sweets, and tobacco for the inmates inside to celebrate spring together. Only a few people knew about it, and they discreetly referred to it as a “Flying feast.”"
     },
     {
       "id": "gate-G1",

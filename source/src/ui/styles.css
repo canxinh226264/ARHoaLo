@@ -41,6 +41,8 @@ button { font: inherit; color: inherit; }
 #cam, #gl, #fx { position: fixed; inset: 0; width: 100%; height: 100%; }
 #cam { object-fit: cover; background: #1c2a36; }
 #cam.mirrored { transform: scaleX(-1); }
+/* camera trước: lật cả video lẫn lớp 3D như soi gương; mọi phép tính vẫn dùng ảnh gốc */
+body.selfie #cam, body.selfie #gl { transform: scaleX(-1); }
 #gl { pointer-events: auto; }
 #fx { pointer-events: none; z-index: 30; }
 body.no-camera #cam { display: none; }
@@ -186,8 +188,28 @@ body.no-camera {
 .chip--hand { cursor: default; opacity: 0; transform: translateY(-6px); transition: opacity 0.25s, transform 0.25s; }
 .chip--hand.show { opacity: 1; transform: none; }
 .chip--hand.hold { background: var(--cobalt); color: var(--cream); }
-.hud__right { display: flex; gap: 8px; align-items: center; }
-.artcard--info p { max-height: 30svh; overflow: auto; }
+.hud__right { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.round.round--top { width: 46px; height: 46px; }
+.round.round--top svg { width: 24px; height: 24px; }
+.round--top[aria-expanded='true'] { background: var(--cobalt); color: var(--cream); }
+
+/* menu thả xuống kiểu Google: thẻ nổi neo dưới nút cài đặt, chạm ra ngoài là đóng */
+.dropdown-scrim { position: fixed; inset: 0; z-index: 40; background: transparent; }
+.dropdown {
+  position: fixed; z-index: 41; top: calc(var(--safe-t) + 64px); right: 12px;
+  min-width: 228px; max-width: calc(100% - 24px); padding: 6px 0; border-radius: 16px;
+  background: var(--cream); color: var(--cobalt);
+  box-shadow: 0 1px 3px rgba(0, 30, 60, 0.18), 0 10px 28px rgba(0, 30, 60, 0.24);
+  transform-origin: top right; animation: menu-in 0.14s ease-out;
+}
+.dropdown__item {
+  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 48px; padding: 8px 18px;
+  border: 0; background: transparent; color: inherit; font-size: var(--s-body); text-align: left; cursor: pointer;
+}
+.dropdown__item svg { width: 22px; height: 22px; flex: none; }
+.dropdown__item:hover, .dropdown__item:focus-visible { background: rgba(0, 83, 155, 0.08); outline: none; }
+.dropdown__item:active { background: rgba(0, 83, 155, 0.14); }
+.artcard--info p { max-height: 30svh; overflow: auto; white-space: pre-line; }
 
 /* ---------- hỏi đáp ---------- */
 .sheet.ask { display: flex; flex-direction: column; max-height: 82svh; padding-bottom: calc(var(--safe-b) + 14px); }
@@ -213,7 +235,7 @@ body.no-camera {
 
 /* ---------- bản đồ nhỏ ---------- */
 .minimap {
-  position: absolute; z-index: 21; left: 12px; top: calc(var(--safe-t) + 62px);
+  position: absolute; z-index: 21; left: 12px; top: calc(var(--safe-t) + 12px);
   width: 128px; height: 128px; border-radius: 18px; overflow: hidden;
   border: 2px solid var(--cream); box-shadow: 0 6px 18px rgba(0, 30, 60, 0.25); background: #efe9da;
   transition: width 0.2s, height 0.2s;
@@ -288,7 +310,8 @@ body.no-camera {
 .hud.has-art .chip--hand { visibility: hidden; }
 
 .toast {
-  position: fixed; left: 50%; top: calc(var(--safe-t) + 64px); transform: translateX(-50%);
+  /* dưới bản đồ nhỏ và cột nút góc trên bên phải */
+  position: fixed; left: 50%; top: calc(var(--safe-t) + 152px); transform: translateX(-50%);
   width: max-content; max-width: min(calc(100% - 32px), 420px); z-index: 36;
   background: var(--cobalt); color: var(--cream); padding: 10px 16px; border-radius: 14px;
   font-size: var(--s-body); line-height: 1.35; box-shadow: var(--shadow); text-align: center;
@@ -323,6 +346,7 @@ input[type='range'] { width: 46%; accent-color: var(--cobalt); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes drop { from { transform: translate(-50%, -10px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes flash { from { opacity: 0.85; } to { opacity: 0; } }
+@keyframes menu-in { from { transform: scale(0.92); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 @media (prefers-reduced-motion: reduce) {
@@ -334,4 +358,4 @@ input[type='range'] { width: 46%; accent-color: var(--cobalt); }
 }
 
 /* Trong phiên AR, làm mờ nền phía sau nút phải tính lại trên camera mỗi khung hình. */
-body.xr .chip, body.xr .round, body.xr .wayfind, body.xr .artcard, body.xr .toast { -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.xr .chip, body.xr .round, body.xr .wayfind, body.xr .artcard, body.xr .toast, body.xr .dropdown { -webkit-backdrop-filter: none; backdrop-filter: none; }

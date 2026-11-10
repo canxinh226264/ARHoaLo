@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/geo-tracker'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, GeoTracker, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/geo-tracker'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/ui/speech'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { cardSpeech, splitForSpeech, speak, stopSpeaking, FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, GeoTracker, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -611,6 +611,65 @@ test('Image targets: unique indices, known kinds, image files present', async ()
   }
   assert.ok(cfg.items.some((i) => i.kind === 'enter'));
   assert.ok(fs.statSync('../' + cfg.targets).size > 0);
+});
+test('Info cards have their text in both languages, or are pending in both', async () => {
+  const fs = await import('node:fs');
+  const cfg = JSON.parse(fs.readFileSync('src/config/artifacts.json', 'utf8'));
+  const pending = (s) => !s || s.startsWith('[CẦN BỔ SUNG]');
+  const info = cfg.items.filter((i) => i.kind === 'info');
+  for (const it of info) assert.equal(pending(it.descVi), pending(it.descEn), it.id);
+  assert.ok(info.filter((i) => !pending(i.descVi)).length >= 3);
+});
+test('Read aloud: the card text follows the chosen language and skips missing content', () => {
+  const NL = String.fromCharCode(10);
+  const item = { titleVi: 'Panel D11 · Bàn quà, cây đào – bảng Tết', titleEn: 'Panel D11 · Gift table', descVi: ['Bữa tiệc tàu bay', '', 'Giám ngục Hỏa Lò…'].join(NL), descEn: ['Flying feast', '', 'The Hoa Lo Prison…'].join(NL) };
+  assert.equal(cardSpeech(item, 'vi'), ['Panel D11. Bàn quà, cây đào. bảng Tết.', 'Bữa tiệc tàu bay', '', 'Giám ngục Hỏa Lò…'].join(NL));
+  assert.ok(cardSpeech(item, 'en').startsWith(['Panel D11. Gift table.', 'Flying feast'].join(NL)));
+  const pending = { ...item, descVi: '[CẦN BỔ SUNG] Nội dung panel do BTC cung cấp.', descEn: '[CẦN BỔ SUNG] Panel text to be provided by the organisers.' };
+  assert.equal(cardSpeech(pending, 'en'), 'Panel D11. Gift table.');
+  const long = 'Một câu ngắn. ' + 'chữ, '.repeat(120) + 'hết.';
+  const parts = splitForSpeech(long);
+  assert.ok(parts.every((p) => p.length <= 200), parts.map((p) => p.length).join(','));
+  assert.equal(parts.join(' ').replace(/\s+/g, ' '), long.replace(/\s+/g, ' ').trim());
+});
+test('Read aloud: right voice, one ending callback, and a clean stop', () => {
+  const spoken = [];
+  let cancels = 0;
+  const voices = [{ lang: 'en-US', name: 'en' }, { lang: 'vi-VN', name: 'vi' }];
+  const synth = { getVoices: () => voices, speak: (u) => spoken.push(u), cancel: () => { cancels++; } };
+  const savedWindow = globalThis.window, savedU = globalThis.SpeechSynthesisUtterance;
+  globalThis.window = { speechSynthesis: synth };
+  globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+  try {
+    let done = 0;
+    assert.equal(speak('Xin chào. Chúc mừng năm mới.', 'vi', () => done++), 'ok');
+    assert.deepEqual(spoken.map((u) => [u.text, u.lang, u.voice.name]), [['Xin chào.', 'vi-VN', 'vi'], ['Chúc mừng năm mới.', 'vi-VN', 'vi']]);
+    spoken.at(-1).onend();
+    assert.equal(done, 1);
+    spoken.at(-1).onend(); // sự kiện lặp lại không gọi thêm
+    assert.equal(done, 1);
+    // dừng giữa chừng: gọi kết thúc đúng một lần, sự kiện muộn của câu cũ bị bỏ qua
+    let done2 = 0;
+    speak('Hello there.', 'en', () => done2++);
+    const old = spoken.at(-1);
+    stopSpeaking();
+    old.onerror();
+    assert.equal(done2, 1);
+    assert.ok(cancels >= 2);
+    // nội dung mới chen ngang nội dung đang đọc
+    let done3 = 0, done4 = 0;
+    speak('One.', 'en', () => done3++);
+    speak('Hai.', 'vi', () => done4++);
+    assert.equal(done3, 1);
+    assert.equal(done4, 0);
+    voices.splice(1, 1); // máy không có giọng tiếng Việt
+    assert.equal(speak('Xin chào.', 'vi'), 'no-voice');
+    globalThis.window = {};
+    assert.equal(speak('Xin chào.', 'vi'), 'unsupported');
+  } finally {
+    if (savedWindow === undefined) delete globalThis.window; else globalThis.window = savedWindow;
+    if (savedU === undefined) delete globalThis.SpeechSynthesisUtterance; else globalThis.SpeechSynthesisUtterance = savedU;
+  }
 });
 
 // ---------------------------------------------------------------- đo phòng từ camera

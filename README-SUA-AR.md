@@ -19,7 +19,7 @@ Camera thường dùng mô hình phân vùng cảnh trong `models/surface/` (Dee
 - Camera thường (khi chưa có mô hình AI): ẩn hoa đọng khi chưa xác định được vùng sàn, chỉ học màu từ vùng gần phía dưới màn hình sau khoảng 0,7 giây ổn định. Không học từ vùng xa 8 m như trước; loại vùng vừa bị vật khác che ngay. Thiếu cảm biến, cảm biến ngừng gửi dữ liệu hoặc camera trước thì không đoán vùng sàn.
 - AR nâng cao: dùng cùng hệ tọa độ với bộ vẽ, yêu cầu bề mặt ngang có nhiều điểm trải rộng và ổn định qua nhiều khung hình; bỏ dữ liệu quét cũ. Chỉ dùng bề mặt gần nhất của mỗi tia, không đặt xuyên mặt bàn. Quyền đặt lấy theo khung hình hiện tại; bỏ tính năng tự cho đặt theo độ cao giả định sau 10 giây.
 - AR nâng cao bớt lag: bỏ yêu cầu dữ liệu độ sâu (trước đây bật mà không dùng), vẽ ở 60% độ phân giải, giữ mức chất lượng thấp, giảm từ 5 xuống 3 tia dò bề mặt, bỏ hiệu ứng làm mờ nền của nút. Chưa đo được trên điện thoại thật.
-- Có **Tuỳ chọn → Đặt lại mặt sàn** trong cả hai chế độ. Khi bắt đầu, hướng camera xuống vùng sàn trống gần chân, giữ khoảng một giây rồi lia chậm.
+- Khi bắt đầu, hướng camera xuống vùng sàn trống gần chân, giữ khoảng một giây rồi lia chậm. (Mục "Đặt lại mặt sàn" đã bỏ khỏi menu theo yêu cầu; muốn đo lại thì tải lại trang.)
 - Tán đào: 36 cụm cành xếp theo lưới 2 m quanh người xem, treo theo trần đo được (xem mục "Tự đo phòng"), dùng instancing.
 - Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
 
@@ -30,12 +30,12 @@ Chế độ trong phòng không còn lấy kích thước từ tài liệu (`roo
 - **Sàn và tường:** mặt nạ sàn từ camera được chiếu xuống một bản đồ ô 0,2 m, nhớ trong 3 phút. Dải vật cản dài từ 1 m trở lên theo hướng nhìn mới tính là tường, nên bàn ghế không bị coi là tường. Mỗi lần nhìn chỉ thấy chừng 4,5 m; hướng nào chưa thấy tường thì coi là còn trong phòng.
 - **Trần:** camera thường tìm mép trần–tường (bằng mô hình AI, hoặc theo màu khi chưa có mô hình), rồi tính cao = mắt + khoảng cách tới tường × tan(góc ngẩng), lấy phân vị 70% của nhiều hướng vì đồ đạc che chân tường làm kết quả thấp đi. AR nâng cao dùng mặt phẳng trần nếu ARCore thấy được.
 - **Hoa và cành:** hoa sinh trong vùng đã đo, rơi từ trần xuống sàn, bay qua tường thì mờ đi. Cành treo cách trần 0,35 m, lưới cuộn theo người xem, cụm nằm ngoài tường thì ẩn.
-- **Đặt lại mặt sàn** cũng xoá kết quả đo để đo lại từ đầu.
+- Tải lại trang thì kết quả đo được xoá để đo lại từ đầu.
 - Giới hạn: chiều cao mắt giả định 1,45 m nên tỉ lệ có sai số. Trần và tường cùng màu thì không tìm được mép, app dùng mặc định 2,8 m. ARCore hiếm khi nhận được trần, nên AR nâng cao thường dùng giá trị mặc định này.
 
 ## Dẫn đường tới Cổng Parabol (thử nghiệm)
 
-**Tuỳ chọn → Dẫn đường tới Cổng Parabol (thử nghiệm)** → nhập tầng → **Bắt đầu dẫn đường** (trình duyệt sẽ hỏi quyền vị trí).
+Bấm nút đổi chế độ (icon ghim bản đồ, dưới nút cài đặt) để sang **Ngoài cổng**; trình duyệt sẽ hỏi quyền vị trí. (Mục "Dẫn đường tới Cổng Parabol" trong menu đã bỏ.)
 
 Chế độ **Ngoài cổng** dùng chung dải sáng này: đã bỏ tuyến cố định trong `route.json` và nút "Căn pano", hướng luôn lấy từ GPS và la bàn. Dải sáng không né vật cản, nên đoạn đường có thể đi xuyên qua tường trên màn hình. **Khi đưa vào triển lãm, phải đổi `destination.json` sang toạ độ cổng thật** (hiện đang là Cổng Parabol để thử).
 
@@ -51,14 +51,21 @@ Chế độ **Ngoài cổng** dùng chung dải sáng này: đã bỏ tuyến c�
 
 ## Hỏi đáp, mini map, thẻ văn bản và nhận ảnh cổng
 
-- **Hỏi đáp (Gemini):** icon hỏi đáp ở góc dưới bên trái, cùng nút **Hỏi thêm** trên thẻ panel hoặc hiện vật. Khách gõ câu hỏi, nói (nếu trình duyệt hỗ trợ nhận giọng nói) hoặc bật 📷 để kèm ảnh camera. Nếu bật Âm thanh trong Tuỳ chọn, câu trả lời được đọc to.
+- **Hỏi đáp (Gemini):** icon hỏi đáp ở góc dưới bên trái, cùng nút **Hỏi thêm** trên thẻ panel hoặc hiện vật. Khách gõ câu hỏi, nói (nếu trình duyệt hỗ trợ nhận giọng nói) hoặc bật 📷 để kèm ảnh camera. Bấm 🔊 cạnh câu trả lời để nghe đọc to.
   - Câu hỏi đi qua `api/ask.mjs` (Vercel Function); key Gemini nằm ở máy chủ, không có trong web. **Cài đặt:** tạo key tại Google AI Studio → Vercel → Project → Settings → Environment Variables → thêm `GEMINI_API_KEY` → Redeploy. Tuỳ chọn: `GEMINI_MODEL` (mặc định `gemini-3.5-flash-lite`), `ALLOWED_ORIGINS`.
   - Trợ lý chỉ được trả lời theo `source/src/config/knowledge.json` và nội dung panel/hiện vật trong `artifacts.json`. Mục ghi `[CẦN BỔ SUNG]` (nhà vệ sinh, giờ mở cửa, nội dung panel…) sẽ được trả lời là chưa có thông tin; BTC điền vào rồi build lại.
   - Gói miễn phí: hạn mức tính chung cho mọi khách và nội dung gửi lên được Google dùng để cải thiện sản phẩm (đã ghi trong dòng quyền riêng tư của app). Mất mạng thì hỏi đáp báo không dùng được, phần AR vẫn chạy.
 - **Mini map:** hiện ở góc trên trái khi dẫn đường và trong chế độ ngoài phòng (cần quyền vị trí, tuyến đường xin một lần sau khi GPS sai số dưới 100 m), xoay theo hướng nhìn, chạm để phóng to. Đây là bản đồ lớn OpenStreetMap, chưa có sơ đồ riêng của bảo tàng. Nền là ô bản đồ OpenStreetMap (tile.openstreetmap.org, có ghi nguồn, chỉ hợp lượng dùng nhỏ); không tải được nền thì vẫn vẽ tuyến, vị trí và điểm đến.
 - **Ảnh mốc (MindAR), 13 ảnh trong `markers/artifacts.mind`:** 0–1 hiện vật 3D (chậu tôn, thùng gỗ); 2–10 panel F, A1–A4, B2, C4, C8, D11 → thẻ văn bản; 11–12 ảnh cổng G1 và biển tên G2 → đang dẫn đường mà camera thấy thì tự chuyển sang hoa đào rơi. Ảnh panel lấy từ hồ sơ thiết kế, thu về cạnh dài 400 px để file mốc gọn (4,1 MB); nên thay bằng file in chính thức. Thêm/đổi ảnh: sửa `artifacts.json` (giữ đúng thứ tự `targetIndex`), biên dịch lại bằng `tools/compile-targets.html`.
 - Thẻ văn bản và ảnh cổng chỉ cần nhận ra ảnh (không đặt model), nên hiện sau khoảng nửa giây.
-- Nút chế độ đọc chỉ hiện dưới thẻ văn bản của panel; đóng thẻ thì chế độ đọc bật từ nút này cũng tắt theo. Muốn giữ lâu dài thì bật trong Tuỳ chọn.
+- **Nút loa trên thẻ panel:** đọc to tiêu đề và nội dung panel bằng ngôn ngữ đang chọn (giọng `vi-VN` hoặc `en-US` của điện thoại), đổi ngôn ngữ khi đang đọc thì đọc lại bằng ngôn ngữ mới. Trong lúc đọc, hoa ở giữa màn hình thưa đi; bấm lần nữa, đóng thẻ hoặc đọc xong thì trở lại bình thường. Nội dung panel F, B2, D11 đã chép từ ảnh thiết kế (bản Việt và Anh in trên panel), BTC cần soát lại theo bản in. Panel A1–A4, C4, C8 chưa có nội dung vì ảnh quá mờ, nên chỉ đọc tiêu đề. Máy thiếu giọng tiếng Việt thì app nhắc cài thêm trong cài đặt chuyển văn bản thành giọng nói.
+
+## Giao diện camera
+
+- **Góc trên bên phải:** nút cài đặt (bánh răng) mở menu thả xuống gồm English/Tiếng Việt, Xem hướng dẫn và Trợ giúp; chạm ra ngoài hoặc bấm Esc là đóng. Các mục khác (chế độ đọc, mật độ hoa, âm thanh, tiết kiệm pin, giảm chuyển động, khung hành lang, căn hướng, đứng trước panel, dẫn đường thử nghiệm, đặt lại sàn, thoát AR nâng cao) đã bỏ; app dùng giá trị mặc định. Thoát AR nâng cao bằng nút Quay lại của điện thoại.
+- Ngay dưới là nút đổi chế độ chỉ có icon: ghim bản đồ = sang Ngoài cổng, cửa = vào Trong hành lang. Đổi xong có thông báo ngắn tên chế độ.
+- **Mini map** ngoài cổng nằm sát mép trên, ngang với nút cài đặt.
+- **Nút đổi camera** bên phải nút chụp (chỉ hiện khi máy có từ 2 camera, ẩn trong AR nâng cao). Camera trước hiển thị như soi gương; cảnh 3D quay 180° theo camera nên hoa, cành vẫn đúng chỗ. Khi selfie, app tạm dừng đo sàn/trần (giữ kết quả đã đo) và giữ nguyên hướng Bắc của dải sáng. Ảnh chụp lưu theo chiều thật, không lật gương.
 
 ## Chạy lại hoặc chỉnh tiếp
 
