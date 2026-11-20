@@ -2,17 +2,17 @@
 
 Bản chạy nằm ngay trong thư mục này (`index.html`, `assets`, `sw.js`). Mã nguồn đã sửa nằm trong `source/`; thư mục mã nguồn bên cạnh dự án không bị thay đổi.
 
-## Nhận diện sàn và trần bằng AI
+## Nhận diện sàn bằng AI
 
 Camera thường dùng mô hình phân vùng cảnh trong `models/surface/` (DeepLab v3+ MobileNetV2 huấn luyện trên ADE20K, giấy phép Apache-2.0, 4,4 MB), chạy trên chính điện thoại, không gửi ảnh đi đâu.
 
 - Mô hình chạy bằng CPU (WASM) trong Web Worker `src/core/surface-worker.ts`, nên không tranh GPU với hoa đào. Ảnh đầu vào 129×225, tối đa khoảng 3 lần/giây; máy yếu hoặc bật tiết kiệm pin thì thưa đi, đang quay máy nhanh thì tạm dừng.
 - Kết quả được đổi sang hướng trong không gian rồi cộng dồn vào một bản đồ toàn cảnh (`src/core/surface-map.ts`), nhờ đó hoa vẫn bám đúng chỗ giữa hai lần chạy mô hình và ranh giới không nhấp nháy.
-- **Cành đào chỉ hiện ở hướng là trần thật**, **hoa đọng chỉ hiện ở hướng là sàn thật**, nên tường, tủ, giường che được hoa.
-- Cảm biến sửa lỗi của mô hình: sàn không thể ở trên đường chân trời, trần không thể ở dưới, mặt phẳng trơn gần đỉnh đầu mà mô hình gọi là "tường" được tính là trần.
-- Mô hình chưa tải xong hoặc không chạy được thì app tự quay về cách đoán theo màu ở mục dưới. Mở `?debug` để xem trạng thái (dòng `AI`) và mặt nạ (xanh lá = sàn, xanh dương = trần).
+- App chỉ tập trung nhận diện **sàn**: **hoa đọng chỉ hiện ở hướng là sàn thật**, nên tường, tủ, giường che được hoa. Không còn nhận diện hay đo trần, không còn cành đào trên trần.
+- Cảm biến sửa lỗi của mô hình: sàn không thể ở trên đường chân trời.
+- Mô hình chưa tải xong hoặc không chạy được thì app tự quay về cách đoán theo màu ở mục dưới. Mở `?debug` để xem trạng thái (dòng `AI`) và mặt nạ sàn (xanh lá).
 - Tạo lại mô hình: trong `source/`, chạy `node tools/build-surface-model.mjs` (cần mạng).
-- Giới hạn: vẫn là một camera không đo được độ sâu, nên chiều cao trần có sai số theo chiều cao mắt giả định. Hoa đang rơi trong không trung không bị vật thật che.
+- Giới hạn: hoa đang rơi trong không trung không bị vật thật che.
 
 ## Những gì đã sửa
 
@@ -20,18 +20,17 @@ Camera thường dùng mô hình phân vùng cảnh trong `models/surface/` (Dee
 - AR nâng cao: dùng cùng hệ tọa độ với bộ vẽ, yêu cầu bề mặt ngang có nhiều điểm trải rộng và ổn định qua nhiều khung hình; bỏ dữ liệu quét cũ. Chỉ dùng bề mặt gần nhất của mỗi tia, không đặt xuyên mặt bàn. Quyền đặt lấy theo khung hình hiện tại; bỏ tính năng tự cho đặt theo độ cao giả định sau 10 giây.
 - AR nâng cao bớt lag: bỏ yêu cầu dữ liệu độ sâu (trước đây bật mà không dùng), vẽ ở 60% độ phân giải, giữ mức chất lượng thấp, giảm từ 5 xuống 3 tia dò bề mặt, bỏ hiệu ứng làm mờ nền của nút. Chưa đo được trên điện thoại thật.
 - Khi bắt đầu, hướng camera xuống vùng sàn trống gần chân, giữ khoảng một giây rồi lia chậm. (Mục "Đặt lại mặt sàn" đã bỏ khỏi menu theo yêu cầu; muốn đo lại thì tải lại trang.)
-- Tán đào: 36 cụm cành xếp theo lưới 2 m quanh người xem, treo theo trần đo được (xem mục "Tự đo phòng"), dùng instancing.
+- Đã bỏ tán cành đào trên trần.
 - Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
 
 ## Tự đo phòng (không dùng kích thước cố định)
 
-Chế độ trong phòng không còn lấy kích thước từ tài liệu (`room.json` chỉ còn dùng cho giá trị phụ). Khi vào phòng, hướng camera xuống sàn trống gần chân, giữ khoảng một giây rồi lia từ chân tường lên trần.
+Chế độ trong phòng không còn lấy kích thước từ tài liệu (`room.json` chỉ còn dùng cho giá trị phụ). Khi vào phòng, hướng camera xuống sàn trống gần chân, giữ khoảng một giây rồi lia chậm quanh sàn tới chân tường.
 
 - **Sàn và tường:** mặt nạ sàn từ camera được chiếu xuống một bản đồ ô 0,2 m, nhớ trong 3 phút. Dải vật cản dài từ 1 m trở lên theo hướng nhìn mới tính là tường, nên bàn ghế không bị coi là tường. Mỗi lần nhìn chỉ thấy chừng 4,5 m; hướng nào chưa thấy tường thì coi là còn trong phòng.
-- **Trần:** camera thường tìm mép trần–tường (bằng mô hình AI, hoặc theo màu khi chưa có mô hình), rồi tính cao = mắt + khoảng cách tới tường × tan(góc ngẩng), lấy phân vị 70% của nhiều hướng vì đồ đạc che chân tường làm kết quả thấp đi. AR nâng cao dùng mặt phẳng trần nếu ARCore thấy được.
-- **Hoa và cành:** hoa sinh trong vùng đã đo, rơi từ trần xuống sàn, bay qua tường thì mờ đi. Cành treo cách trần 0,35 m, lưới cuộn theo người xem, cụm nằm ngoài tường thì ẩn.
+- **Hoa:** hoa sinh trong vùng đã đo ở độ cao cố định 2,8 m, rơi xuống sàn, bay qua tường thì mờ đi.
 - Tải lại trang thì kết quả đo được xoá để đo lại từ đầu.
-- Giới hạn: chiều cao mắt giả định 1,45 m nên tỉ lệ có sai số. Trần và tường cùng màu thì không tìm được mép, app dùng mặc định 2,8 m. ARCore hiếm khi nhận được trần, nên AR nâng cao thường dùng giá trị mặc định này.
+- Giới hạn: chiều cao mắt giả định 1,45 m nên tỉ lệ có sai số.
 
 ## Dẫn đường tới Cổng Parabol (thử nghiệm)
 
@@ -65,7 +64,7 @@ Chế độ **Ngoài cổng** dùng chung dải sáng này: đã bỏ tuyến c�
 - **Góc trên bên phải:** nút cài đặt (bánh răng) mở menu thả xuống gồm English/Tiếng Việt, Xem hướng dẫn và Trợ giúp; chạm ra ngoài hoặc bấm Esc là đóng. Các mục khác (chế độ đọc, mật độ hoa, âm thanh, tiết kiệm pin, giảm chuyển động, khung hành lang, căn hướng, đứng trước panel, dẫn đường thử nghiệm, đặt lại sàn, thoát AR nâng cao) đã bỏ; app dùng giá trị mặc định. Thoát AR nâng cao bằng nút Quay lại của điện thoại.
 - Ngay dưới là nút đổi chế độ chỉ có icon: ghim bản đồ = sang Ngoài cổng, cửa = vào Trong hành lang. Đổi xong có thông báo ngắn tên chế độ.
 - **Mini map** ngoài cổng nằm sát mép trên, ngang với nút cài đặt.
-- **Nút đổi camera** bên phải nút chụp (chỉ hiện khi máy có từ 2 camera, ẩn trong AR nâng cao). Camera trước hiển thị như soi gương; cảnh 3D quay 180° theo camera nên hoa, cành vẫn đúng chỗ. Khi selfie, app tạm dừng đo sàn/trần (giữ kết quả đã đo) và giữ nguyên hướng Bắc của dải sáng. Ảnh chụp lưu theo chiều thật, không lật gương.
+- **Nút đổi camera** bên phải nút chụp (chỉ hiện khi máy có từ 2 camera, ẩn trong AR nâng cao). Camera trước hiển thị như soi gương; cảnh 3D quay 180° theo camera nên hoa vẫn đúng chỗ. Khi selfie, app tạm dừng đo sàn (giữ kết quả đã đo) và giữ nguyên hướng Bắc của dải sáng. Ảnh chụp lưu theo chiều thật, không lật gương.
 
 ## Chạy lại hoặc chỉnh tiếp
 

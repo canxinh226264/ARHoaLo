@@ -2,24 +2,20 @@ import * as THREE from 'three';
 import { room, HALF_W, LEN } from '../config/room';
 import { theme } from '../config/theme';
 import { PetalSystem } from '../physics/petal-system';
-import { Branches } from './branches';
 
 /**
- * Chế độ trong hành lang: hoa rơi + đọng + cành trên cao + (tuỳ chọn) khung
+ * Chế độ trong hành lang: hoa rơi + đọng trên sàn + (tuỳ chọn) khung
  * hành lang dạng nét mảnh để kiểm tra room.json khi không có camera.
  */
 export class IndoorScene {
   readonly root = new THREE.Group();
   readonly petals: PetalSystem;
-  readonly branches: Branches;
   readonly guide: THREE.Group;
 
   constructor(parent: THREE.Object3D) {
     parent.add(this.root);
     this.petals = new PetalSystem(this.root, { capacity: 1600 });
     this.petals.bounded = false; // không dùng kích thước cố định: phòng được đo từ camera
-    this.branches = new Branches(this.root);
-    this.petals.emitters.push(this.branches.emitter);
     this.guide = buildGuide();
     this.guide.visible = false;
     this.root.add(this.guide);

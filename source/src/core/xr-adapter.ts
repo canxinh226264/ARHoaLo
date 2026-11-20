@@ -223,15 +223,6 @@ export class XRAdapter {
     }
   }
 
-  /** Chiều cao trần so với sàn (m) nếu ARCore đã thấy mặt phẳng trần, không thì null. */
-  get ceilingHeight(): number | null {
-    if (!this.placed || this.ceilingHits.length < 10) return null;
-    const sorted = [...this.ceilingHits].sort((a, b) => a - b);
-    const h = sorted[sorted.length >> 1] - this.floorY;
-    return h >= 2.1 && h <= 7 ? h : null;
-  }
-  private ceilingHits: number[] = [];
-
   /** Nạp mọi điểm chạm cho bộ dò sàn; trả về điểm gần nhất của tia ngắm giữa màn hình. */
   private scan(frame: XRFrame, t: number): THREE.Vector3 | null {
     let aim: THREE.Vector3 | null = null;
@@ -243,11 +234,8 @@ export class XRAdapter {
         const { position: p, orientation: q } = pose.transform;
         const normalY = 1 - 2 * (q.x * q.x + q.z * q.z); // trục Y của pose là pháp tuyến mặt phẳng
         if (Math.hypot(p.x - this.camPos.x, p.z - this.camPos.z) > MAX_HIT_RANGE) return;
-        if (normalY < -0.92 && p.y > this.camPos.y + 0.3) {
-          this.ceilingHits.push(p.y);
-          if (this.ceilingHits.length > 60) this.ceilingHits.shift();
-          return;
-        }
+        // mặt phẳng úp xuống phía trên đầu (trần) không phải sàn
+        if (normalY < -0.92 && p.y > this.camPos.y + 0.3) return;
         const flat = this.detector.addHit(p.y, normalY, t, p.x, p.z);
         if (center && flat) aim = new THREE.Vector3(p.x, p.y, p.z);
       });

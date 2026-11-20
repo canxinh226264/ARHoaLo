@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 mkdirSync('.test-output', { recursive: true });
-await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/scenes/branches'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/geo-tracker'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/ui/speech'; export * from './src/core/ceiling-vision'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
-const { cardSpeech, splitForSpeech, speak, stopSpeaking, FloorDetector, FloorVision, XRAdapter, Branches, RoomMap, SurfaceMap, logitsToFrame, GuideScene, GeoTracker, CeilingVision, DEFAULT_CEILING, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
+await build({ stdin: { contents: `export * from './src/core/floor-detector'; export * from './src/core/floor-vision'; export * from './src/core/xr-adapter'; export * from './src/core/room-map'; export * from './src/core/surface-map'; export * from './src/core/surface-classes'; export * from './src/scenes/guide-scene'; export * from './src/core/geo'; export * from './src/core/geo-tracker'; export * from './src/core/route-service'; export * from './src/core/ask-service'; export * from './src/ui/minimap'; export * from './src/ui/speech'; export * as THREE from 'three';`, resolveDir: process.cwd() }, bundle: true, platform: 'node', format: 'esm', outfile: '.test-output/ar.mjs', logLevel: 'silent' });
+const { cardSpeech, splitForSpeech, speak, stopSpeaking, FloorDetector, FloorVision, XRAdapter, RoomMap, SurfaceMap, logitsToFrame, GuideScene, GeoTracker, toEnu, fromEnu, parseRoute, fetchRoute, buildContext, askGuide, mercator, metersPerPixel, enuToWorld, worldToEnu, compassFromAbsolute, NorthEstimate, deviceQuaternion, groundAngle, DESTINATION, THREE, GRID_W: W, GRID_H: H, floorDistances } = await import('../.test-output/ar.mjs');
 const N = W * H;
 function observe(d, y, start = 0, frames = 80, spread = true) {
   for (let i = 0; i < frames; i++) {
@@ -99,31 +99,6 @@ test('XR uses only nearest hit, preserving center ray identity if a source fails
   const frame = { getHitTestResults: () => [hit(-0.5), hit(-1.45)] };
   for (let i = 0; i < 80; i++) { xr.detector.observeCamera(0, i / 60); xr.scan(frame, i / 60); }
   assert.equal(xr.detector.floorY, null);
-});
-test('Canopy follows the measured ceiling and the viewer, and hides behind walls', () => {
-  const ctx = new Proxy({}, { get: (_, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {} });
-  globalThis.document = { createElement: () => ({ getContext: () => ctx }) };
-  const b = new Branches(new THREE.Group());
-  assert.equal(b.holders.length, 36);
-  b.layout(0, 0, 3.4, () => true);
-  assert.ok(b.holders.every((h) => near(h.group.position.y, 3.05, 1e-6)));
-  assert.ok(b.holders.every((h) => Math.abs(h.group.position.x) <= 6 && Math.abs(h.group.position.z) <= 6));
-  const all = b.emitter.points.length;
-  assert.ok(all > 1000);
-  // trần thấp hơn thì tán hạ theo
-  b.layout(0, 0, 2.6, () => true);
-  assert.ok(b.holders.every((h) => near(h.group.position.y, 2.25, 1e-6)));
-  // đi xa: tán cuộn theo người xem
-  b.layout(30, -17, 2.6, () => true);
-  assert.ok(b.holders.every((h) => Math.abs(h.group.position.x - 30) <= 6 && Math.abs(h.group.position.z + 17) <= 6));
-  // tường ở x = 2: các cụm ngoài tường bị ẩn, không rụng hoa từ đó
-  b.layout(0, 0, 2.6, (x) => x < 2);
-  const hidden = b.holders.filter((h) => h.target === 0);
-  assert.ok(hidden.length > 5 && hidden.every((h) => h.group.position.x >= 2));
-  assert.ok(b.emitter.points.length < all && b.emitter.points.every((p) => p.x < 4));
-  b.update(5, 1, 0, new THREE.Color(1, 1, 1), false);
-  assert.ok(hidden.every((h) => !h.group.visible));
-  b.setDetail(0.55);
 });
 
 // ---------------------------------------------------------------- bản đồ phòng
@@ -708,15 +683,14 @@ function boxRoom({ x0, x1, z0, z1, h, eye = 1.45 }) {
   };
   return { camera, render, eye };
 }
-function scanRoom(room, map, ceil) {
+function scanRoom(room, map) {
   const pos = new THREE.Vector3(0, room.eye, 0);
   for (const pitch of [-0.75, -0.45, 0.2, 0.75, 1.0]) {
     for (let a = 0; a < 24; a++) {
       const yaw = (a / 24) * Math.PI * 2;
       const cam = room.camera(yaw, pitch);
-      const { rgba, mask } = room.render(cam);
+      const { mask } = room.render(cam);
       map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
-      ceil.update(rgba, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
     }
   }
 }
@@ -726,12 +700,8 @@ for (const [name, spec] of [
 ]) {
   test(`Room is measured from the camera: ${name}`, () => {
     const room = boxRoom(spec);
-    const map = new RoomMap(180), ceil = new CeilingVision();
-    assert.equal(ceil.height, DEFAULT_CEILING);
-    assert.equal(ceil.measured, false);
-    scanRoom(room, map, ceil);
-    assert.equal(ceil.measured, true);
-    assert.ok(Math.abs(ceil.height - spec.h) < spec.h * 0.12, `trần ${ceil.height.toFixed(2)} so với ${spec.h}`);
+    const map = new RoomMap(180);
+    scanRoom(room, map);
     // tường đo được đúng hướng, sai số trong khoảng một ô bản đồ
     const east = map.wallAlong(0, 0, 1, 0);
     assert.ok(east !== null && Math.abs(east - spec.x1) < 0.5, `tường Đông ${east}`);
@@ -740,39 +710,6 @@ for (const [name, spec] of [
     assert.equal(map.isInside(0, 0, 0, spec.z0 - 1), false);
   });
 }
-test('Ceiling stays at the default when walls and ceiling share one colour', () => {
-  const room = boxRoom({ x0: -2, x1: 3, z0: -2.5, z1: 2, h: 3.5 });
-  const map = new RoomMap(180), ceil = new CeilingVision();
-  const pos = new THREE.Vector3(0, room.eye, 0);
-  for (const pitch of [-0.75, 0.75, 1.0]) for (let a = 0; a < 24; a++) {
-    const cam = room.camera((a / 24) * 6.283, pitch);
-    const { rgba, mask } = room.render(cam);
-    for (let i = 0; i < mask.length; i++) if (!mask[i]) rgba.set([230, 230, 230, 255], i * 4);
-    map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
-    ceil.update(rgba, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
-  }
-  assert.equal(ceil.measured, false);
-  assert.equal(ceil.height, DEFAULT_CEILING);
-});
-test('Ceiling is measured from the AI mask, and furniture hiding the wall foot does not pull it down', () => {
-  const spec = { x0: -2.5, x1: 3, z0: -3, z1: 2.5, h: 3.4 };
-  const room = boxRoom(spec);
-  const map = new RoomMap(180), ceil = new CeilingVision();
-  const pos = new THREE.Vector3(0, room.eye, 0);
-  for (const pitch of [-0.75, -0.45, 0.2, 0.75, 1.0]) for (let a = 0; a < 24; a++) {
-    const yaw = (a / 24) * Math.PI * 2;
-    const cam = room.camera(yaw, pitch);
-    const { rgba, mask } = room.render(cam);
-    const ceilMask = new Float32Array(W * H);
-    for (let i = 0; i < ceilMask.length; i++) ceilMask[i] = rgba[i * 4] === 245 ? 1 : 0;
-    // một phần ba các hướng có giường che chân tường: sàn kết thúc sớm hơn
-    if (a % 3 === 0) for (let i = 0; i < mask.length; i++) if (i < W * 44) mask[i] = 0;
-    map.observe(mask, cam.projectionMatrixInverse, cam.quaternion, pos, 0.1);
-    ceil.updateMask(ceilMask, cam.projectionMatrixInverse, cam.quaternion, room.eye, (dx, dz) => map.wallAlong(0, 0, dx, dz));
-  }
-  assert.equal(ceil.measured, true);
-  assert.ok(Math.abs(ceil.height - spec.h) < spec.h * 0.15, `trần ${ceil.height.toFixed(2)} so với ${spec.h}`);
-});
 test('A table in the room is not a wall', () => {
   const map = new RoomMap(180);
   paint(map, -0.6, -2.2, 0.6, -1.6); // mặt bàn dài 0,6 m theo hướng nhìn
@@ -784,13 +721,12 @@ test('A table in the room is not a wall', () => {
   assert.equal(map.isInside(0, 0, 0, -3.8), false);
 });
 
-// ---------------------------------------------------------------- nhận diện sàn/trần bằng mô hình
-/** Khung hình phân vùng: mỗi ô do hàm fn(tâm NDC x, y) trả về 'floor' | 'ceil' | 'wall' | 'other'. */
+// ---------------------------------------------------------------- nhận diện sàn bằng mô hình
+/** Khung hình phân vùng: mỗi ô do hàm fn(tâm NDC x, y) trả về 'floor' hoặc thứ khác. */
 function segFrame(fn, w = 33, h = 57) {
-  const f = { w, h, floor: new Uint8Array(w * h), ceil: new Uint8Array(w * h), wall: new Uint8Array(w * h) };
+  const f = { w, h, floor: new Uint8Array(w * h) };
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
-    const k = fn((c / (w - 1)) * 2 - 1, 1 - (r / (h - 1)) * 2);
-    if (k !== 'other') f[k][r * w + c] = 255;
+    if (fn((c / (w - 1)) * 2 - 1, 1 - (r / (h - 1)) * 2) === 'floor') f.floor[r * w + c] = 255;
   }
   return f;
 }
@@ -804,22 +740,16 @@ function surfaceCam(pitch, yaw = 0) {
 }
 const integrate = (s, f, cam) => s.integrate(f, cam.projectionMatrix, cam.projectionMatrixInverse, cam.quaternion);
 
-test('Model logits become floor, ceiling and wall confidence', () => {
+test('Model logits become floor confidence', () => {
   const C = 151, logits = new Float32Array(4 * C);
   logits[0 * C + 4] = 8; // sàn
   logits[1 * C + 6] = 8; // trần
   logits[2 * C + 1] = 8; // tường
-  logits[3 * C + 8] = 8; // giường: không thuộc nhóm nào
+  logits[3 * C + 29] = 8; // thảm: tính là sàn
   const f = logitsToFrame(logits, 2, 2, C);
-  assert.ok(f.floor[0] > 250 && f.ceil[0] < 5 && f.wall[0] < 5);
-  assert.ok(f.ceil[1] > 250 && f.floor[1] < 5);
-  assert.ok(f.wall[2] > 250 && f.floor[2] < 5);
-  assert.ok(f.floor[3] < 5 && f.ceil[3] < 5 && f.wall[3] < 5);
-  // đèn trần và thảm tính vào trần và sàn
-  const g = new Float32Array(2 * C);
-  g[83] = 8; g[C + 29] = 8;
-  const fr = logitsToFrame(g, 1, 2, C);
-  assert.ok(fr.ceil[0] > 250 && fr.floor[1] > 250);
+  assert.ok(f.floor[0] > 250 && f.floor[3] > 250);
+  assert.ok(f.floor[1] < 5 && f.floor[2] < 5);
+  assert.equal(Object.keys(f).sort().join(), 'floor,h,w');
 });
 test('Surface map stays attached to the world when the phone turns', () => {
   const s = new SurfaceMap();
@@ -844,7 +774,7 @@ test('Surface map stays attached to the world when the phone turns', () => {
   assert.equal(s.ready, false);
   assert.equal(s.sample(0, 0, down.x, down.y, down.z), 0);
 });
-test('Surface map rejects impossible labels using the phone orientation', () => {
+test('Surface map rejects floor above the horizon using the phone orientation', () => {
   const s = new SurfaceMap();
   // mô hình nói "sàn" ở cả khung hình khi nhìn ngang: phần trên chân trời không phải sàn
   const level = surfaceCam(0);
@@ -852,17 +782,6 @@ test('Surface map rejects impossible labels using the phone orientation', () => 
   integrate(s, segFrame(() => 'floor'), level);
   assert.ok(s.sample(0, 0, 0, 0.3, -1) < 0.05);
   assert.ok(s.sample(0, 0, 0, -0.3, -1) > 0.9);
-  // nhìn gần thẳng lên: "tường" ở đỉnh đầu thực ra là trần, còn tường ở tầm mắt vẫn là tường
-  const up = surfaceCam(1.35);
-  integrate(s, segFrame(() => 'wall'), up);
-  const centre = (W >> 1) + (H >> 1) * W;
-  assert.ok(s.ceilMask[centre] > 0.9, String(s.ceilMask[centre]));
-  const ahead = surfaceCam(0.1);
-  integrate(s, segFrame(() => 'wall'), ahead);
-  assert.ok(s.ceilMask[centre] < 0.05, String(s.ceilMask[centre]));
-  // "trần" ở dưới đường chân trời bị loại
-  integrate(s, segFrame(() => 'ceil'), surfaceCam(-0.5));
-  assert.ok(s.ceilMask[centre] < 0.05, String(s.ceilMask[centre]));
 });
 test('Surface model files are present and match the expected input', async () => {
   const fs = await import('node:fs');
