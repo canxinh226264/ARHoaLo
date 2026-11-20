@@ -66,6 +66,10 @@ const COMPASS_FRESH = 1000; // ms
 const ROUTE_CARROT = 6;
 /** Độ dài phần tuyến nối thêm sau điểm đó (m), đủ để thấy chỗ rẽ phía trước. */
 const ROUTE_AHEAD = 30;
+/** Góc tối thiểu (rad, khoảng 35°) để tính là một chỗ rẽ khi báo hướng trên HUD. */
+const TURN_MIN = 0.6;
+/** m: đo hướng hai bên chỗ rẽ trên đoạn dài chừng này. */
+const TURN_SPAN = 12;
 const SPARKS = 90;
 const SPARK_SPEED = 0.07; // vòng dọc dải sáng mỗi giây
 
@@ -253,6 +257,38 @@ export class GuideScene {
 
   get hasRoute() {
     return !!this.route;
+  }
+
+  /**
+   * Chỗ rẽ tiếp theo trên tuyến: khoảng cách đi dọc tuyến (m) và góc rẽ (radian, dương = rẽ phải).
+   * Hết chỗ rẽ thì trả về quãng còn lại tới đích với góc 0. Chưa có tuyến thì null.
+   * Hướng mỗi bên chỗ rẽ đo trên đoạn dài TURN_SPAN, để mấy đoạn rất ngắn của dữ liệu bản đồ
+   * không bị coi là chỗ rẽ.
+   */
+  get nextTurn(): { distance: number; angle: number } | null {
+    const r = this.route;
+    if (!r) return null;
+    const p = this.projectOnRoute();
+    const pts = [p.point, ...r.slice(p.seg + 1)];
+    const reach = (i: number, step: 1 | -1) => {
+      let left = TURN_SPAN;
+      for (let j = i; j + step >= 0 && j + step < pts.length; j += step) {
+        const d = pts[j].distanceTo(pts[j + step]);
+        if (d >= left) return pts[j].clone().lerp(pts[j + step], left / d);
+        left -= d;
+      }
+      return pts[step > 0 ? pts.length - 1 : 0].clone();
+    };
+    let dist = p.off; // như distanceLeft: tính cả đoạn từ chỗ đứng ra tới tuyến
+    for (let i = 1; i < pts.length - 1; i++) {
+      dist += pts[i - 1].distanceTo(pts[i]);
+      const a = reach(i, -1), b = reach(i, 1);
+      const inB = Math.atan2(pts[i].x - a.x, pts[i].y - a.y);
+      const outB = Math.atan2(b.x - pts[i].x, b.y - pts[i].y);
+      const angle = wrapAngle(outB - inB);
+      if (Math.abs(angle) >= TURN_MIN) return { distance: dist, angle };
+    }
+    return { distance: dist + pts[pts.length - 2].distanceTo(pts[pts.length - 1]), angle: 0 };
   }
 
   /** Vị trí người dùng, mét Đông/Bắc so với điểm đến. */
