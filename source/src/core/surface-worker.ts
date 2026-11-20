@@ -7,7 +7,7 @@ import wasmSimd from '@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-simd.
 import { logitsToFrame } from './surface-classes';
 
 /**
- * Worker chạy mô hình phân vùng sàn/trần/tường. Tách khỏi luồng chính và dùng CPU (WASM),
+ * Worker chạy mô hình phân vùng để nhận diện sàn. Tách khỏi luồng chính và dùng CPU (WASM),
  * nên không tranh GPU với hoa đào và không làm giật khung hình.
  */
 const OUTPUT = 'logits/semantic/BiasAdd';
@@ -38,7 +38,7 @@ function segment(buffer: ArrayBuffer, w: number, h: number) {
   const [, oh, ow, oc] = output.shape;
   const frame = logitsToFrame(output.dataSync(), oh, ow, oc);
   tf.dispose([input, output]);
-  scope.postMessage({ type: 'result', frame, ms: performance.now() - start }, [frame.floor.buffer, frame.ceil.buffer, frame.wall.buffer]);
+  scope.postMessage({ type: 'result', frame, ms: performance.now() - start }, [frame.floor.buffer]);
 }
 
 scope.onmessage = (e: MessageEvent) => {

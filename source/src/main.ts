@@ -19,8 +19,6 @@ import { FloorVision, floorDistances, GRID_W, GRID_H } from './core/floor-vision
 import { RoomMap } from './core/room-map';
 import { SurfaceMap } from './core/surface-map';
 import { SurfaceSegmenter, SEG_H, SEG_W } from './core/surface-segmenter';
-import { ceilingUniforms } from './scenes/ceiling-clip';
-import { CeilingVision, DEFAULT_CEILING } from './core/ceiling-vision';
 import { HandTracker, HandOccluder } from './tracking/hand-tracker';
 import { ManualMarkerTracker } from './tracking/marker-tracker';
 import { IndoorScene } from './scenes/indoor-scene';
@@ -81,13 +79,13 @@ const xr = new XRAdapter(R.gl, world, R.scene);
 const markers = new ManualMarkerTracker();
 const floorVision = new FloorVision();
 const floorDist = new Float32Array(GRID_W * GRID_H);
-// đo phòng từ camera: bản đồ sàn/tường và chiều cao trần, thay cho kích thước cố định trong room.json
+// đo phòng từ camera: bản đồ sàn/tường, thay cho kích thước cố định trong room.json
 const roomMap = new RoomMap(180);
-const ceiling = new CeilingVision();
-// nhận diện sàn/trần bằng mô hình AI; đo theo màu (FloorVision, CeilingVision.update) chỉ dùng khi chưa có mô hình
+// hoa sinh ở độ cao cố định này rồi rơi xuống sàn (không đo trần)
+const SPAWN_HEIGHT = 2.8;
+// nhận diện sàn bằng mô hình AI; đoán theo màu (FloorVision) chỉ dùng khi chưa có mô hình
 const surfaces = new SurfaceMap();
 const segmenter = new SurfaceSegmenter();
-ceilingUniforms.uSurface.value = surfaces.texture;
 let surfaceSeenAt = 0;
 segmenter.onResult = (frame, pose) => {
   surfaces.integrate(frame, pose.proj, pose.projInv, pose.q);
@@ -97,17 +95,15 @@ segmenter.onResult = (frame, pose) => {
   const p = pose.pos;
   roomMap.recenter(p.x, p.z);
   roomMap.observe(surfaces.floorMask, pose.projInv, pose.q, p, sec);
-  ceiling.updateMask(surfaces.ceilMask, pose.projInv, pose.q, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
   if (dbgMask) drawFloorMask(dbgMask);
 };
 const roomCam = new THREE.Vector3();
 indoor.petals.room = {
-  ceilingY: DEFAULT_CEILING,
+  ceilingY: SPAWN_HEIGHT,
   isInside: (x, z) => roomMap.isInside(roomCam.x, roomCam.z, x, z),
 };
 function resetRoom() {
   roomMap.reset();
-  ceiling.reset();
   surfaces.reset();
   segmenter.invalidate();
 }
@@ -417,7 +413,6 @@ function applyQuality() {
   R.setPixelRatio(q.pixelRatio);
   indoor.petals.maxFalling = q.maxFalling;
   indoor.petals.maxResting = q.maxResting;
-  indoor.branches.setDetail(q.branchDetail);
   hand.hz = q.handHz;
   guide.setSparkles(q.sparkles && !settings.battery);
 }
@@ -614,7 +609,7 @@ function capture() {
     ctx.drawImage(titleImg, 20 * dpr, H - th - 22 * dpr, tw, th);
   }
   ctx.fillStyle = 'rgba(252,250,240,0.9)';
-  ctx.font = `italic ${14 * dpr}px "EB Garamond", serif`;
+  ctx.font = `${14 * dpr}px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif`;
   ctx.textAlign = 'right';
   ctx.fillText('Di tích Nhà tù Hỏa Lò · Xuân 2027', W - 18 * dpr, H - 24 * dpr);
   const flash = document.createElement('div');
@@ -647,7 +642,6 @@ const dbg = DEBUG ? document.body.appendChild(Object.assign(document.createEleme
 const VISION_MS = 100;
 /** Quay nhanh hơn mức này (rad/s) thì ảnh nhoè, chưa đưa vào mô hình. */
 const MAX_SURFACE_TURN = 1.2;
-let layoutAt = 0;
 let visionAt = 0;
 let surfaceAt = 0;
 const visionQ = new THREE.Quaternion();
@@ -662,7 +656,6 @@ function drawFloorMask(c: HTMLCanvasElement) {
   const ai = surfaces.ready;
   (ai ? surfaces.floorMask : floorVision.mask).forEach((m, i) => {
     img.data[i * 4 + 1] = m * 255;
-    img.data[i * 4 + 2] = ai ? surfaces.ceilMask[i] * 255 : 0;
     img.data[i * 4 + 3] = 255;
   });
   ctx.putImageData(img, 0, 0);
@@ -718,7 +711,7 @@ function tick(now: number, frame?: XRFrame) {
 
   // AR nâng cao đã có sàn thật từ hit-test; chế độ camera thì nhận sàn từ hình ảnh
   const useVision = !inXR && hasCamera && settings.mode === 'indoor';
-  // selfie: khung hình chủ yếu là người, nên tạm dừng đo nhưng giữ bản đồ sàn/trần đã có
+  // selfie: khung hình chủ yếu là người, nên tạm dừng đo nhưng giữ bản đồ sàn đã có
   const canScan = useVision && feed.ready && sensors.hasOrientation && !sensors.stale && !feed.mirrored && !feed.selfie;
   if (useVision && !canScan && !feed.selfie) {
     floorVision.reset();
@@ -744,7 +737,6 @@ function tick(now: number, frame?: XRFrame) {
       const p = R.camera.position;
       roomMap.recenter(p.x, p.z);
       if (floorVision.ready) roomMap.observe(floorVision.mask, R.camera.projectionMatrixInverse, R.camera.quaternion, p, sec);
-      ceiling.update(grid, R.camera.projectionMatrixInverse, R.camera.quaternion, p.y, (dx, dz) => roomMap.wallAlong(p.x, p.z, dx, dz));
       visionAt = now;
       visionQ.copy(R.camera.quaternion);
       if (dbgMask) drawFloorMask(dbgMask);
@@ -754,18 +746,7 @@ function tick(now: number, frame?: XRFrame) {
   if (settings.mode === 'indoor') {
     const up = THREE.MathUtils.smoothstep(pitch, 32, 52);
     const down = THREE.MathUtils.smoothstep(-pitch, 25, 50);
-    // tán cây hiện cả khi nhìn thẳng (ở mép trên khung hình), chỉ tắt khi cúi hẳn xuống
-    const canopy = THREE.MathUtils.smoothstep(pitch, -42, -12) * (settings.reading ? 0.55 : 1);
-    // độ cao trần: AR nâng cao lấy từ mặt phẳng thật nếu có, camera thường lấy từ hình ảnh
-    const ceilingY = inXR ? xr.ceilingHeight ?? DEFAULT_CEILING : ceiling.height;
     roomCam.copy(camPosRoom);
-    indoor.petals.room!.ceilingY = ceilingY;
-    if (now - layoutAt > 250) {
-      layoutAt = now;
-      indoor.branches.layout(camPosRoom.x, camPosRoom.z, ceilingY, indoor.petals.room!.isInside);
-    }
-    indoor.branches.clipTarget = useVision && surfaces.ready ? 1 : 0;
-    indoor.branches.update(dt, canopy, up, light, settings.reduceMotion);
     indoor.petals.lookUp = up;
     indoor.petals.lookDown = down;
     if (!inXR && hasCamera) {
@@ -802,7 +783,7 @@ function tick(now: number, frame?: XRFrame) {
         accuracy: guide.accuracy,
       });
     }
-    hud?.setGuide({ phase: guide.phase, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
+    hud?.setGuide({ phase: guide.phase, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState, turn: guide.phase === 'walk' ? guide.nextTurn : null });
   }
 
   quality.tick(dt);
@@ -814,7 +795,6 @@ function tick(now: number, frame?: XRFrame) {
       `fps ${quality.fps.toFixed(0)} · ${quality.batterySaver ? 'low*' : quality.level}\n` +
       `rơi ${st.falling} · đọng ${st.resting} · giữ ${st.held}\n` +
       `x ${localizer.position.x.toFixed(2)} z ${localizer.position.z.toFixed(2)} · pitch ${pitch.toFixed(0)}°\n` +
-      `trần ${ceiling.height.toFixed(2)} m${ceiling.measured ? '' : ' (mặc định)'}\n` +
       `AI ${segmenter.status}${segmenter.lastMs ? ` · ${segmenter.lastMs.toFixed(0)} ms` : ''}\n` +
       `tay ${hand.status}${hand.active ? ` · ${hand.depth.toFixed(2)} m${hand.grabbing ? ' · nắm' : ''}` : ''}`;
   }
@@ -837,4 +817,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // cho kiểm thử tự động / gỡ lỗi
-(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap, roomMap, ceiling, surfaces, segmenter };
+(window as unknown as Record<string, unknown>).__dgx = { indoor, outdoor, sensors, localizer, hand, settings, setMode, quality, R, floorVision, artTracker, artViewer, guide, handlers, geo, askPanel, minimap, roomMap, surfaces, segmenter };

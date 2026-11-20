@@ -3,7 +3,6 @@ import { getPetalAtlas, CELL } from '../scenes/petal-textures';
 import { BRAND_PETAL_RATIO } from '../config/theme';
 import { HALF_W, LEN } from '../config/room';
 import { Wind } from './wind';
-import { CEILING_GLSL, ceilingUniforms } from '../scenes/ceiling-clip';
 import {
   distanceTo,
   pushOutOfTable,
@@ -15,23 +14,16 @@ import {
 
 /**
  * Shader cánh hoa: atlas + uốn cong nhẹ + giả trong mờ khi nhìn xiên.
- * @param ceilingOnly chỉ hiện ở hướng là trần thật (hoa trên cành)
  */
-export function createPetalMaterial(texture: THREE.Texture, ceilingOnly = false) {
+export function createPetalMaterial(texture: THREE.Texture) {
   return new THREE.ShaderMaterial({
-    defines: ceilingOnly ? { CEILING_ONLY: '' } : {},
     uniforms: {
       map: { value: texture },
       uLight: { value: new THREE.Color(1, 1, 1) },
       uOpacity: { value: 1 },
       uCurl: { value: 0.18 },
-      uSurface: ceilingUniforms.uSurface,
-      uClip: ceilingUniforms.uClip,
     },
     vertexShader: /* glsl */ `
-      #ifdef CEILING_ONLY
-      ${CEILING_GLSL}
-      #endif
       attribute float aCell;
       attribute vec4 aTint;
       uniform float uCurl;
@@ -47,9 +39,6 @@ export function createPetalMaterial(texture: THREE.Texture, ceilingOnly = false)
         vec3 n = normalize(normalMatrix * mat3(instanceMatrix) * vec3(0.0, 0.0, 1.0));
         vFacing = abs(dot(n, normalize(-mv.xyz)));
         vTint = aTint;
-        #ifdef CEILING_ONLY
-        vTint.a *= ceilingMask((modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz);
-        #endif
         gl_Position = projectionMatrix * mv;
       }
     `,

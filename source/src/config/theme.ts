@@ -15,8 +15,8 @@ export const BRAND_PETAL_RATIO = 0.12;
 
 /** Mức chất lượng – quality-manager chuyển qua lại theo FPS. */
 export const QUALITY = {
-  high: { pixelRatio: 2, maxFalling: 600, maxResting: 900, handHz: 20, sparkles: true, branchDetail: 1 },
-  medium: { pixelRatio: 1.5, maxFalling: 420, maxResting: 650, handHz: 16, sparkles: true, branchDetail: 0.8 },
-  low: { pixelRatio: 1, maxFalling: 280, maxResting: 420, handHz: 12, sparkles: false, branchDetail: 0.55 },
+  high: { pixelRatio: 2, maxFalling: 600, maxResting: 900, handHz: 20, sparkles: true },
+  medium: { pixelRatio: 1.5, maxFalling: 420, maxResting: 650, handHz: 16, sparkles: true },
+  low: { pixelRatio: 1, maxFalling: 280, maxResting: 420, handHz: 12, sparkles: false },
 } as const;
 export type QualityLevel = keyof typeof QUALITY;

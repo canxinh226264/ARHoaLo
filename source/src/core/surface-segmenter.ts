@@ -41,9 +41,9 @@ export class SurfaceSegmenter {
     this.worker.postMessage({ type: 'init', url: new URL('./models/surface/model.json', document.baseURI).href });
   }
 
-  /** Không chạy được thì app quay về đoán sàn/trần theo màu. */
+  /** Không chạy được thì app quay về đoán sàn theo màu. */
   private fail(reason?: string) {
-    console.warn('[nhận diện sàn/trần]', reason);
+    console.warn('[nhận diện sàn]', reason);
     this.status = 'error';
     this.busy = false;
     this.worker?.terminate();
