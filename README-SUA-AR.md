@@ -21,7 +21,7 @@ Camera thường dùng mô hình phân vùng cảnh trong `models/surface/` (Dee
 - AR nâng cao bớt lag: bỏ yêu cầu dữ liệu độ sâu (trước đây bật mà không dùng), vẽ ở 60% độ phân giải, giữ mức chất lượng thấp, giảm từ 5 xuống 3 tia dò bề mặt, bỏ hiệu ứng làm mờ nền của nút. Chưa đo được trên điện thoại thật.
 - Khi bắt đầu, hướng camera xuống vùng sàn trống gần chân, giữ khoảng một giây rồi lia chậm. (Mục "Đặt lại mặt sàn" đã bỏ khỏi menu theo yêu cầu; muốn đo lại thì tải lại trang.)
 - Đã bỏ tán cành đào trên trần.
-- Cache offline có phiên bản mới theo nội dung file. Sau khi đưa bản này lên hosting, mở trang có mạng và tải lại để nhận bản mới.
+- Cache offline: trang chính lấy bản mới từ mạng trước (quá 4 giây hoặc mất mạng thì dùng bản đã lưu), các file khác lấy từ cache. Máy đã mở bản cũ trước đây cần tải lại thêm một lần để nhận service worker mới; từ đó mỗi lần cập nhật chỉ cần mở lại trang.
 
 ## Tự đo phòng (không dùng kích thước cố định)
 

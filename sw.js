@@ -35,12 +35,50 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Cache-first cho mọi request cùng origin; điều hướng trả về index.html khi offline.
+/** ms: mạng chậm quá mức này thì mở bản đã lưu, để app vẫn vào nhanh khi sóng yếu. */
+const NAV_TIMEOUT = 4000;
+
+// Trang chính (index.html): lấy bản mới từ mạng trước, để lần mở đầu sau khi cập nhật đã ra
+// giao diện mới (index.html trỏ tới file JS/CSS có tên mới). Mất mạng hoặc quá chậm thì dùng bản đã lưu.
+function navigate(req) {
+  return new Promise((resolve) => {
+    let done = false;
+    const fallback = () => caches.match('./').then((hit) => hit || fetch(req));
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(fallback());
+    }, NAV_TIMEOUT);
+    fetch(req, { cache: 'no-cache' })
+      .then((res) => {
+        if (res.ok && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put('./', copy));
+        }
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch(() => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(caches.match('./').then((hit) => hit || Response.error()));
+      });
+  });
+}
+
+// Các file còn lại: cache-first (tên file đã kèm mã nội dung nên không bị cũ).
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (req.mode === 'navigate') {
+    event.respondWith(navigate(req));
+    return;
+  }
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
