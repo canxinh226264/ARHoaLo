@@ -8,6 +8,8 @@
   --pink: #ff8fb1;
   --shadow: 0 10px 30px rgba(0, 40, 80, 0.22);
   --serif: 'EB Garamond', 'Times New Roman', serif;
+  /* phông thường cho mọi thứ trên màn hình camera; chỉ màn hình cổng dùng --serif */
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --s-sm: 15px;
   --s-body: 17px;
   --s-md: 21px;
@@ -24,7 +26,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #1c2a36;
-  font-family: var(--serif);
+  font-family: var(--sans);
   font-size: var(--s-body);
   line-height: 1.5;
   color: var(--cobalt);
@@ -34,7 +36,8 @@ html, body {
 }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
-.en { font-style: italic; }
+.gate { font-family: var(--serif); }
+.gate .en { font-style: italic; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---------- lớp nền AR ---------- */
@@ -112,7 +115,8 @@ body.no-camera {
   line-height: 1.15; box-shadow: 0 6px 16px rgba(0, 58, 110, 0.28);
   transition: transform 0.15s ease, background 0.2s ease;
 }
-.btn small { font-size: var(--s-sm); font-style: italic; font-weight: 400; opacity: 0.85; }
+.btn small { font-size: var(--s-sm); font-weight: 400; opacity: 0.85; }
+.gate .btn small { font-style: italic; }
 .btn:active { transform: scale(0.97); }
 .btn--ghost { background: transparent; color: var(--cobalt); box-shadow: none; border: 1.5px solid rgba(0, 83, 155, 0.35); font-size: var(--s-body); min-height: 46px; }
 .gate .btn { margin-top: 20px; }
@@ -222,7 +226,7 @@ body.no-camera {
 .ask__msg--me { align-self: flex-end; background: var(--cobalt); color: var(--cream); border-bottom-right-radius: 4px; }
 .ask__msg--bot { align-self: flex-start; background: #fff; border: 1px solid rgba(0, 83, 155, 0.15); border-bottom-left-radius: 4px; }
 .ask__msg--err { align-self: flex-start; background: #fff4e5; color: var(--cobalt-deep); }
-.ask__typing { opacity: 0.7; font-style: italic; }
+.ask__typing { opacity: 0.7; }
 .ask__say { border: 0; background: transparent; font-size: 16px; cursor: pointer; padding: 0 0 0 4px; }
 .ask__chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; }
 .ask__chips::-webkit-scrollbar { display: none; }
@@ -329,7 +333,7 @@ body.no-camera {
 .switch input:checked + i { transform: translateX(20px); }
 input[type='range'] { width: 46%; accent-color: var(--cobalt); }
 .opt-btn { width: 100%; text-align: left; border: 0; background: none; padding: 14px 0; border-top: 1px solid rgba(0, 83, 155, 0.12); font-size: var(--s-body); color: var(--cobalt); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-.opt-btn small { font-style: italic; opacity: 0.7; font-size: var(--s-sm); }
+.opt-btn small { opacity: 0.7; font-size: var(--s-sm); }
 .panels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 6px; }
 .panels button {
   min-height: 64px; border-radius: 14px; border: 1.5px solid rgba(0, 83, 155, 0.25); background: #fff; cursor: pointer;

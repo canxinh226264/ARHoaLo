@@ -609,7 +609,7 @@ function capture() {
     ctx.drawImage(titleImg, 20 * dpr, H - th - 22 * dpr, tw, th);
   }
   ctx.fillStyle = 'rgba(252,250,240,0.9)';
-  ctx.font = `italic ${14 * dpr}px "EB Garamond", serif`;
+  ctx.font = `${14 * dpr}px system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif`;
   ctx.textAlign = 'right';
   ctx.fillText('Di tích Nhà tù Hỏa Lò · Xuân 2027', W - 18 * dpr, H - 24 * dpr);
   const flash = document.createElement('div');
