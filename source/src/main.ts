@@ -783,7 +783,7 @@ function tick(now: number, frame?: XRFrame) {
         accuracy: guide.accuracy,
       });
     }
-    hud?.setGuide({ phase: guide.phase, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState, turn: guide.phase === 'walk' ? guide.nextTurn : null });
+    hud?.setGuide({ phase: guide.phase, floorNow: guide.floorNow, floorTo: guide.floorTo, remaining: guide.distanceLeft, accuracy: guide.accuracy, routeState: guide.routeState });
   }
 
   quality.tick(dt);

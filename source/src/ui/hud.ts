@@ -1,8 +1,7 @@
 import { t, other, getLang, setLang, onLang } from './i18n';
 import { icons } from './icons';
 import { el, sheet } from './screens';
-import { DESTINATION, type GuideSetup } from '../scenes/guide-scene';
-import { NavHud, type NavState } from './nav-hud';
+import { DESTINATION, type GuidePhase, type GuideSetup, type RouteState } from '../scenes/guide-scene';
 
 export interface Settings {
   mode: 'indoor' | 'outdoor' | 'guide';
@@ -34,6 +33,7 @@ export interface HudHandlers {
   guideExit?(): void;
 }
 
+type GuideState = { phase: GuidePhase; floorNow: number; floorTo: number; remaining: number; accuracy: number; routeState: RouteState };
 
 export class Hud {
   readonly el: HTMLElement;
@@ -42,7 +42,6 @@ export class Hud {
   private menuBtn: HTMLButtonElement;
   private flipBtn: HTMLButtonElement;
   private way: HTMLElement;
-  private nav: NavHud;
   private art: HTMLElement;
   private artState: { item: ArtifactCardItem | null; mode: string } = { item: null, mode: 'hidden' };
   artHandlers: { inspect(): void; reset(): void; close(): void; ask(): void; speak(): void } | null = null;
@@ -76,12 +75,6 @@ export class Hud {
     this.menuBtn = this.el.querySelector('[data-menu]')!;
     this.flipBtn = this.el.querySelector('[data-flip]')!;
     this.way = this.el.querySelector('.wayfind')!;
-    this.nav = new NavHud(this.way, {
-      arrived: () => this.h.arrived(),
-      floorDone: () => this.h.guideFloorDone?.(),
-      change: () => this.h.guideOpen?.(),
-      exit: () => this.h.guideExit?.(),
-    });
     this.art = this.el.querySelector('.artcard')!;
     this.el.querySelector('[data-shot]')!.addEventListener('click', () => h.capture());
     this.modeBtn.addEventListener('click', () => h.setMode(this.s.mode === 'indoor' ? 'outdoor' : 'indoor'));
@@ -169,12 +162,57 @@ export class Hud {
     span.textContent = st === 'hold' ? t('handHolding') : st === 'loading' ? t('handLoading') : st === 'seen' ? t('handSeen') : '';
   }
 
-  /** Trạng thái dẫn đường, gọi mỗi khung hình; HUD tự chỉ vẽ lại phần thay đổi. */
-  setGuide(g: NavState) {
-    this.guide = g;
-    if (this.s.mode !== 'indoor') this.nav.update(g, this.s.mode);
+  /** Trạng thái dẫn đường; chỉ vẽ lại khi chữ hoặc nút thay đổi. */
+  setGuide(g: GuideState) {
+    this.guide = { ...g };
+    if (this.s.mode === 'indoor') return;
+    const key = this.guideKey();
+    if (key !== this.guideShown) this.refreshWay();
   }
-  private guide: NavState = { phase: 'idle', floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN, routeState: 'none', turn: null };
+  private guide: GuideState = { phase: 'idle', floorNow: 1, floorTo: 1, remaining: 0, accuracy: NaN, routeState: 'none' };
+  private guideShown = '';
+
+  private guideKey() {
+    const g = this.guide;
+    return `${getLang()}|${this.s.mode}|${g.phase}|${this.guideText()}`;
+  }
+
+  private guideText() {
+    const g = this.guide;
+    const vi = getLang() === 'vi';
+    const name = vi ? DESTINATION.shortVi : DESTINATION.shortEn;
+    const gps = Number.isFinite(g.accuracy) && g.accuracy > 20 ? ` · ${t('guideGps')(Math.round(g.accuracy))}` : '';
+    if (g.phase === 'locating') return t('guideLocating') + (Number.isFinite(g.accuracy) ? ` · ${t('guideGps')(Math.round(g.accuracy))}` : '');
+    if (g.phase === 'floor') return g.floorTo < g.floorNow ? t('guideGoDown')(g.floorTo) : t('guideGoUp')(g.floorTo);
+    if (g.phase === 'arrived') return t('guideArrived')(name);
+    if (g.routeState === 'loading') return `${name} · ${t('guideRouting')}…`;
+    const beeline = g.routeState === 'failed' ? ` · ${t('guideBeeline')}` : '';
+    const m = g.remaining;
+    // làm tròn thô để chữ không nhảy liên tục
+    const dist = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', vi ? ',' : '.')} km` : `${m >= 100 ? Math.round(m / 10) * 10 : Math.round(m)} m`;
+    return t('guideLeft')(name, dist) + beeline + gps;
+  }
+
+  /** Khung dẫn đường gọn một dòng: chữ ngắn + nút nhỏ, không che phần lớn màn hình. */
+  private refreshGuide() {
+    const g = this.guide;
+    this.way.hidden = g.phase === 'idle';
+    this.guideShown = this.guideKey();
+    const outdoor = this.s.mode === 'outdoor';
+    const action = g.phase === 'floor'
+      ? `<button class="btn" type="button" data-gfloor>${t('guideFloorDone')(g.floorTo)}</button>`
+      : outdoor
+      ? `<button class="btn" type="button" data-in aria-label="${t('arrived')}" title="${t('arrived')}">${t('arrivedShort')}</button>`
+      : `<button class="btn btn--ghost" type="button" data-gchange>${t('guideChange')}</button>`;
+    this.way.innerHTML = `
+      <span class="wayfind__text" aria-live="polite">${this.guideText()}</span>
+      ${action}
+      ${outdoor ? '' : `<button class="wayfind__x" type="button" data-gexit aria-label="${t('guideExit')}" title="${t('guideExit')}">×</button>`}`;
+    this.way.querySelector('[data-in]')?.addEventListener('click', () => this.h.arrived());
+    this.way.querySelector('[data-gchange]')?.addEventListener('click', () => this.h.guideOpen?.());
+    this.way.querySelector('[data-gfloor]')?.addEventListener('click', () => this.h.guideFloorDone?.());
+    this.way.querySelector('[data-gexit]')?.addEventListener('click', () => this.h.guideExit?.());
+  }
 
   /** Biểu mẫu bắt đầu dẫn đường tới điểm đến cố định. */
   openGuideSetup(d: GuideSetup, onGo: (s: GuideSetup) => void) {
@@ -206,13 +244,9 @@ export class Hud {
   }
 
   private refreshWay() {
-    this.el.classList.toggle('is-nav', this.s.mode !== 'indoor');
-    if (this.s.mode === 'indoor') {
-      this.way.hidden = true;
-      return;
-    }
-    this.nav.invalidate();
-    this.nav.update(this.guide, this.s.mode);
+    this.way.classList.toggle('wayfind--compact', this.s.mode !== 'indoor');
+    if (this.s.mode === 'indoor') this.way.hidden = true;
+    else this.refreshGuide();
   }
 
   refresh() {
