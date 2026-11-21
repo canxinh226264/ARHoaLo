@@ -283,29 +283,36 @@ body.no-camera {
 .wayfind .row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .wayfind .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 18px; }
 .wayfind .btn--ghost { min-height: 44px; }
-/* dẫn đường: một dòng gọn, không khung, chữ xanh nằm thẳng trên khung hình camera */
+/* dẫn đường: một dòng gọn, không khung; chữ và nút xanh lá sáng kiểu màn hình kính Rokid */
 .wayfind.wayfind--compact {
+  --hud-green: #3cf57a;
+  --hud-green-ink: #00331a; /* chữ trên nút xanh lá */
   display: flex; align-items: center; justify-content: center; gap: 10px;
   width: max-content; max-width: calc(100% - 28px); padding: 0; border-radius: 0;
   background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
   text-align: left; pointer-events: none;
 }
 .wayfind--compact .wayfind__text {
-  flex: 0 1 auto; min-width: 0; color: var(--cobalt);
+  flex: 0 1 auto; min-width: 0; color: var(--hud-green);
   font-size: 19px; font-weight: 700; line-height: 1.25; letter-spacing: 0.005em;
+  /* chỉ một viền tối rất mảnh ở mép chữ (không phải nền) để chữ không mất trên trời sáng */
+  text-shadow: 0 0 1px rgba(0, 30, 15, 0.9), 0 1px 1px rgba(0, 30, 15, 0.6);
 }
 .wayfind--compact button { pointer-events: auto; }
 .wayfind--compact .btn, .wayfind--compact .btn--ghost {
-  flex: none; min-height: 44px; padding: 6px 18px; font-size: var(--s-sm); font-weight: 600; white-space: nowrap;
-  box-shadow: 0 2px 10px rgba(0, 20, 40, 0.35);
+  flex: none; min-height: 44px; padding: 6px 18px; font-size: var(--s-sm); font-weight: 700; white-space: nowrap;
+  background: var(--hud-green); color: var(--hud-green-ink); border: 0;
+  box-shadow: 0 0 12px rgba(60, 245, 122, 0.45);
 }
-.wayfind--compact .btn--ghost { background: var(--cream-glass); color: var(--cobalt); border: 0; }
+.wayfind--compact .btn--ghost, .wayfind__x {
+  background: rgba(0, 30, 15, 0.35); color: var(--hud-green); border: 2px solid var(--hud-green);
+  box-shadow: 0 0 10px rgba(60, 245, 122, 0.35);
+}
 .wayfind__x {
-  flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--cream-glass);
-  color: var(--cobalt); font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 20, 40, 0.35);
+  flex: none; width: 44px; height: 44px; border-radius: 50%;
+  font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
 }
-.wayfind__x:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+.wayfind--compact button:focus-visible { outline: 2px solid var(--hud-green); outline-offset: 3px; }
 
 .artcard {
   position: absolute; left: 50%; transform: translateX(-50%);
