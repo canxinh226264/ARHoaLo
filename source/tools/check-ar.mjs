@@ -485,32 +485,6 @@ test('Position follows GPS closely and glides to each new fix', () => {
   tick(g, cam, 0, 30);
   assert.ok(near(g.position.x, g.userEnu.e - 0, 1), `${g.position.x} / ${g.userEnu.e}`);
 });
-test('HUD: next turn along the route, ignoring tiny wiggles in the map data', () => {
-  const { g, cam } = guideRig();
-  g.onNeedRoute = () => {};
-  g.start({ floorNow: 1, floorTo: 1 });
-  assert.equal(g.nextTurn, null);
-  g.gpsFix({ e: 0, n: -100, accuracy: 5 });
-  tick(g, cam, 0, 3);
-  // lên Bắc 60 m (có một chỗ lệch 0,5 m), rẽ phải sang Đông 30 m, rẽ trái lên Bắc, cuối cùng rẽ trái về Tây tới cổng
-  g.setRoute([{ e: 0, n: -100 }, { e: 0.5, n: -70 }, { e: 0, n: -40 }, { e: 30, n: -40 }, { e: 30, n: 0 }]);
-  let turn = g.nextTurn;
-  assert.ok(near(turn.distance, 60, 0.5), JSON.stringify(turn));
-  assert.ok(near(turn.angle, Math.PI / 2, 0.1), JSON.stringify(turn));
-  // vị trí GPS được trộn dần, nên gửi vài lần như khi đi thật
-  for (let k = 0; k < 8; k++) { g.gpsFix({ e: 30, n: -20, accuracy: 5 }); tick(g, cam, 0, 2); }
-  turn = g.nextTurn;
-  // còn chừng 20 m nữa tới chỗ rẽ (cộng phần lệch khỏi tuyến do GPS trộn dần)
-  const u = g.userEnu;
-  assert.ok(near(turn.distance, -u.n + Math.abs(u.e - 30), 0.5) && near(turn.distance, 20, 5), JSON.stringify({ turn, u }));
-  assert.ok(near(turn.angle, -Math.PI / 2, 0.1), JSON.stringify(turn));
-  // đoạn cuối: không còn chỗ rẽ, báo quãng còn lại tới đích
-  // vị trí GPS được trộn dần, nên gửi vài lần như khi đi thật
-  for (let k = 0; k < 8; k++) { g.gpsFix({ e: 15, n: 0, accuracy: 5 }); tick(g, cam, 0, 2); }
-  turn = g.nextTurn;
-  assert.equal(turn.angle, 0);
-  assert.ok(near(turn.distance, g.distanceLeft, 1e-6));
-});
 test('Guide without a route keeps the straight-line light', () => {
   const { g, cam } = guideRig();
   g.onNeedRoute = () => g.setRoute(null);

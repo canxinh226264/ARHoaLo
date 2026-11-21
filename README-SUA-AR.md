@@ -44,7 +44,7 @@ Chế độ **Ngoài cổng** dùng chung dải sáng này: đã bỏ tuyến c�
 - **Cài key** (miễn phí): tạo key tại https://account.heigit.org, tạo file `source/.env.local` có một dòng `VITE_ORS_KEY=key_của_bạn`, rồi chạy `npm run build:site`. File `.env.local` không được đưa lên Git, nhưng key vẫn nằm trong bản build gửi tới trình duyệt, nên chỉ dùng key miễn phí. Chưa có key hoặc dịch vụ lỗi thì dải sáng quay về hướng chim bay và có thông báo.
 - Thứ tự thử: đi bộ (`foot-walking`), rồi xe đạp (`cycling-regular`). Từ tháng 10/2026, diễn đàn OpenRouteService có báo lỗi treo với chế độ đi bộ ở địa chỉ mới; khi đó app tự dùng tuyến xe đạp, có thể đi đường xe thay vì lối bộ hành.
 - Nếu đường nằm sau lưng hoặc bên cạnh, dải sáng chạy thẳng từ gần chân ra trước mặt rồi bẻ cong sang hướng đó, thay cho chữ nhắc quay lại.
-- Khung thông báo gọn một dòng, gồm khoảng cách còn lại, nút "Đặt lại" và nút ×. Khi GPS sai số trên 20 m, khung hiện thêm "GPS ±… m".
+- Thông báo gọn một dòng, không khung: chữ sáng có bóng tối nằm thẳng trên khung hình camera, gồm khoảng cách còn lại và nút "Đã vào" (ngoài cổng), hoặc nút "Đặt lại" và nút ×. Khi GPS sai số trên 20 m, dòng chữ hiện thêm "GPS ±… m".
 - Khác tầng: chỉ hiện lời nhắc đi cầu thang, không vẽ dải sáng; bấm "Đã tới tầng …" khi xuống tới nơi.
 - Giới hạn: GPS điện thoại thường lệch 5–15 m, trong nhà hoặc giữa nhà cao còn lệch hơn. La bàn bị nhiễu gần khung sắt và xe cộ; lệch thì lắc máy theo hình số 8. Chế độ này chỉ có trong chế độ camera thường, cần cảm biến chuyển động và quyền vị trí. Tính năng chỉ để thử nghiệm, không thay thế việc tự quan sát khi đi đường.
 

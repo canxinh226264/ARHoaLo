@@ -239,19 +239,12 @@ body.no-camera {
 
 /* ---------- bản đồ nhỏ ---------- */
 .minimap {
-  position: absolute; z-index: 26; right: 14px; bottom: calc(var(--safe-b) + 112px);
-  width: 104px; height: 104px; border-radius: 50%; overflow: hidden;
-  /* kiểu kính lái: không khung, chỉ một quầng tối rất nhẹ để nét tuyến nổi trên nền sáng */
-  background: radial-gradient(circle, rgba(0, 30, 60, 0.32) 0%, rgba(0, 30, 60, 0.18) 55%, rgba(0, 30, 60, 0) 72%);
-  transition: width 0.2s, height 0.2s, border-radius 0.2s;
-}
-.minimap--large {
-  /* bản đồ phố phóng to: lên góc trên bên trái để không che chữ dẫn đường */
-  right: auto; bottom: auto; left: 12px; top: calc(var(--safe-t) + 12px);
-  width: min(64vw, 260px); height: min(64vw, 260px); border-radius: 18px;
+  position: absolute; z-index: 21; left: 12px; top: calc(var(--safe-t) + 12px);
+  width: 128px; height: 128px; border-radius: 18px; overflow: hidden;
   border: 2px solid var(--cream); box-shadow: 0 6px 18px rgba(0, 30, 60, 0.25); background: #efe9da;
+  transition: width 0.2s, height 0.2s;
 }
-.minimap:not(.minimap--large) .minimap__credit { display: none; }
+.minimap--large { width: min(64vw, 260px); height: min(64vw, 260px); }
 .minimap canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
 .minimap__credit { position: absolute; right: 3px; bottom: 2px; font: 9px/1.2 sans-serif; color: #333; background: rgba(255, 255, 255, 0.75); padding: 0 3px; border-radius: 3px; text-decoration: none; }
 .hud__bottom {
@@ -290,62 +283,31 @@ body.no-camera {
 .wayfind .row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .wayfind .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 18px; }
 .wayfind .btn--ghost { min-height: 44px; }
-/* ---------- dẫn đường kiểu kính lái: chữ phát sáng nằm thẳng trên khung hình ---------- */
-.hud.is-nav::before {
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--safe-b) + 300px);
-  background: linear-gradient(to top, rgba(0, 30, 60, 0.55), rgba(0, 30, 60, 0.28) 55%, rgba(0, 30, 60, 0));
-  pointer-events: none;
+/* dẫn đường: một dòng gọn, không khung; chữ sáng có bóng tối để đọc được trên mọi nền camera */
+.wayfind.wayfind--compact {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: max-content; max-width: calc(100% - 28px); padding: 0; border-radius: 0;
+  background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  text-align: left; pointer-events: none;
 }
-.wayfind.nav {
-  left: 14px; right: 132px; transform: none; width: auto;
-  bottom: calc(var(--safe-b) + 112px); min-height: 104px;
-  background: none; box-shadow: none; padding: 0; border-radius: 0;
-  -webkit-backdrop-filter: none; backdrop-filter: none;
-  display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 14px;
-  text-align: left; color: var(--cream); line-height: 1.25;
-  text-shadow: 0 1px 2px rgba(0, 30, 60, 0.75), 0 0 10px rgba(0, 30, 60, 0.35);
-  pointer-events: none;
+.wayfind--compact .wayfind__text {
+  flex: 0 1 auto; min-width: 0; color: var(--cream);
+  font-size: 19px; font-weight: 600; line-height: 1.25; letter-spacing: 0.005em;
+  text-shadow: 0 0 2px rgba(0, 20, 40, 0.7), 0 1px 2px rgba(0, 20, 40, 0.9), 0 0 8px rgba(0, 20, 40, 0.6), 0 0 18px rgba(0, 20, 40, 0.35);
 }
-.wayfind.nav.nav--msg { grid-template-columns: 1fr; align-items: end; }
-.nav b, .nav span { display: block; }
-.nav__left { display: grid; gap: 2px; font-size: 13px; white-space: nowrap; }
-.nav__big {
-  font-size: 26px; font-weight: 700; letter-spacing: -0.01em; color: var(--saffron); line-height: 1.05;
-  text-shadow: 0 0 12px rgba(245, 169, 58, 0.55), 0 1px 2px rgba(0, 30, 60, 0.8);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+.wayfind--compact button { pointer-events: auto; }
+.wayfind--compact .btn, .wayfind--compact .btn--ghost {
+  flex: none; min-height: 44px; padding: 6px 18px; font-size: var(--s-sm); font-weight: 600; white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 20, 40, 0.35);
 }
-.nav__mid { display: grid; gap: 3px; min-width: 0; justify-items: start; }
-.nav__turn { display: flex; align-items: center; gap: 4px; margin: -5px 0 -5px -6px; }
-.nav__arrow {
-  display: grid; place-items: center; width: 36px; height: 36px; color: var(--saffron);
-  filter: drop-shadow(0 0 6px rgba(245, 169, 58, 0.7)) drop-shadow(0 1px 1px rgba(0, 30, 60, 0.8));
+.wayfind--compact .btn--ghost { background: var(--cream-glass); color: var(--cobalt); border: 0; }
+.wayfind__x {
+  flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--cream-glass);
+  color: var(--cobalt); font: inherit; font-size: 26px; line-height: 1; cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 20, 40, 0.35);
 }
-.nav__arrow svg { width: 34px; height: 34px; }
-.nav__say {
-  font-size: 15px; font-weight: 600; max-width: 100%; overflow: hidden;
-  display: -webkit-box !important; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
-}
-.nav--msg .nav__say { font-size: 16px; -webkit-line-clamp: 4; line-clamp: 4; }
-.nav__sub { font-size: 12px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.nav__sub:empty { display: none; }
-.nav__bar {
-  width: 100%; height: 5px; border-radius: 999px; margin-top: 4px; overflow: hidden;
-  background: rgba(252, 250, 240, 0.25); box-shadow: 0 0 0 1px rgba(245, 169, 58, 0.35);
-}
-.nav__bar i {
-  display: block; height: 100%; width: 100%; border-radius: inherit; transform-origin: left; transform: scaleX(0.02);
-  background: linear-gradient(90deg, var(--pink), var(--saffron)); box-shadow: 0 0 8px rgba(245, 169, 58, 0.8);
-  transition: transform 0.6s ease;
-}
-.nav__actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; pointer-events: auto; }
-.nav__btn {
-  min-height: 36px; padding: 4px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600;
-  border: 1.5px solid rgba(245, 169, 58, 0.85); background: rgba(0, 30, 60, 0.35); color: var(--cream);
-  text-shadow: none; box-shadow: 0 0 10px rgba(245, 169, 58, 0.3);
-}
-.nav__btn--main { background: var(--saffron); color: var(--cobalt-deep); border-color: var(--saffron); }
-.nav__btn--x { width: 36px; padding: 0; font-size: 22px; line-height: 1; }
-.nav__btn:focus-visible { outline: 2px solid var(--cream); outline-offset: 2px; }
+.wayfind__x:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+
 .artcard {
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: calc(var(--safe-b) + 110px); width: min(calc(100% - 32px), 420px);
