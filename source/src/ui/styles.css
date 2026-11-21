@@ -283,7 +283,7 @@ body.no-camera {
 .wayfind .row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .wayfind .btn { font-size: var(--s-body); min-height: 44px; padding: 6px 18px; }
 .wayfind .btn--ghost { min-height: 44px; }
-/* dẫn đường: một dòng gọn, không khung; chữ sáng có bóng tối để đọc được trên mọi nền camera */
+/* dẫn đường: một dòng gọn, không khung, chữ xanh nằm thẳng trên khung hình camera */
 .wayfind.wayfind--compact {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   width: max-content; max-width: calc(100% - 28px); padding: 0; border-radius: 0;
@@ -291,9 +291,8 @@ body.no-camera {
   text-align: left; pointer-events: none;
 }
 .wayfind--compact .wayfind__text {
-  flex: 0 1 auto; min-width: 0; color: var(--cream);
-  font-size: 19px; font-weight: 600; line-height: 1.25; letter-spacing: 0.005em;
-  text-shadow: 0 0 2px rgba(0, 20, 40, 0.7), 0 1px 2px rgba(0, 20, 40, 0.9), 0 0 8px rgba(0, 20, 40, 0.6), 0 0 18px rgba(0, 20, 40, 0.35);
+  flex: 0 1 auto; min-width: 0; color: var(--cobalt);
+  font-size: 19px; font-weight: 700; line-height: 1.25; letter-spacing: 0.005em;
 }
 .wayfind--compact button { pointer-events: auto; }
 .wayfind--compact .btn, .wayfind--compact .btn--ghost {
